@@ -25,3 +25,7 @@ def get_database():
 
 def get_collection(collection_name: str):
     return get_database()[collection_name]
+
+def get_grievance_collection():
+    """Get the grievance forms collection"""
+    return get_collection("grievance_forms")  # Assuming the collection is named "grievance_forms"

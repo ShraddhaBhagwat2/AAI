@@ -18,6 +18,12 @@ from services.superuser_services.utils.seed_data import create_initial_superadmi
 from services.superuser_services.apis.auth_apis import router as auth_router
 from services.superuser_services.apis.admin_apis import router as admin_router
 
+# Import OfficerResolutionService components
+from services.OfficerResolutionService import resolution_router, init_officer_resolution_service, cleanup_officer_resolution_service
+
+# Import ClarificationService router
+from services.clarification_service.apis.routes import router as clarification_router
+
 load_dotenv()
 
 @asynccontextmanager
@@ -26,6 +32,7 @@ async def lifespan(app: FastAPI):
     await connect_to_mongo()  # For grievance service
     connect_analysis_mongo()  # For analysis service (synchronous)
     await connect_superuser_mongo()  # For SuperUser service
+    await init_officer_resolution_service()  # For OfficerResolutionService
     await create_initial_superadmin()
     await seed_sample_data()
     # Start background worker to monitor grievance submissions
@@ -35,6 +42,7 @@ async def lifespan(app: FastAPI):
     await close_mongo_connection()  # For grievance service
     close_analysis_mongo()  # For analysis service (synchronous)
     await close_superuser_mongo()  # For SuperUser service
+    await cleanup_officer_resolution_service()  # For OfficerResolutionService
 
 app = FastAPI(
     title="GFG Backend",
@@ -58,6 +66,12 @@ app.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
 # Include SuperUser routers
 app.include_router(auth_router, prefix="/superuser/auth")
 app.include_router(admin_router, prefix="/superuser/admin")
+
+# Include OfficerResolutionService router
+app.include_router(resolution_router)
+
+# Include ClarificationService router
+app.include_router(clarification_router, prefix="/clarifications", tags=["clarifications"])
 
 if __name__ == "__main__":
     import uvicorn

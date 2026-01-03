@@ -8,7 +8,7 @@ class GrievanceData(BaseModel):
     title: str
     full_description: str
     category: str
-    area_ward_name: str
+    area_ward_name: Optional[str] = None  # Changed to optional to allow None
     impacted_population: str
     is_recurring: bool
     document_paths: List[str] = []

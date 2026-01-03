@@ -47,3 +47,5 @@ lerna-debug.log*
 
 # OS
 Thumbs.db
+
+resolution_uploads/

@@ -320,3 +320,17 @@ async def get_grievance_form(form_id: str, user_id: str = Depends(get_current_us
     form.pop("_id", None)
     
     return form
+
+@router.get("/forms")
+async def get_all_grievance_forms(user_id: str = Depends(get_current_user)):
+    """Get all submitted grievance forms for the logged-in user."""
+    forms_collection = get_collection("grievance_forms")
+    
+    # Retrieve all forms for the user
+    forms = await forms_collection.find({"user_id": user_id}).to_list(length=None)
+    
+    # Remove MongoDB _id from each form for JSON serialization
+    for form in forms:
+        form.pop("_id", None)
+    
+    return forms
