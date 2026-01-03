@@ -5,7 +5,6 @@ class UserCreate(BaseModel):
     full_name: str
     mobile_number: str
     password: str
-    ward_zone: str
     residential_address: str
     email: EmailStr
     language_preference: str
@@ -25,7 +24,6 @@ class UserResponse(BaseModel):
     id: str
     full_name: str
     mobile_number: str
-    ward_zone: str
     residential_address: str
     email: EmailStr
     language_preference: str

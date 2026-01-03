@@ -16,7 +16,6 @@ class UserRepository:
                 id=str(user["_id"]),
                 full_name=user["full_name"],
                 mobile_number=user["mobile_number"],
-                ward_zone=user["ward_zone"],
                 residential_address=user["residential_address"],
                 email=user["email"],
                 language_preference=user["language_preference"]
@@ -30,7 +29,6 @@ class UserRepository:
                 id=str(user["_id"]),
                 full_name=user["full_name"],
                 mobile_number=user["mobile_number"],
-                ward_zone=user["ward_zone"],
                 residential_address=user["residential_address"],
                 email=user["email"],
                 language_preference=user["language_preference"]
