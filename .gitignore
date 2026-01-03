@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+.env
+.vscode/
+myenv/
+chroma_db/
+grievance_uploads/
