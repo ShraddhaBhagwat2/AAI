@@ -13,7 +13,7 @@ from shared.utils.auth_middleware import get_current_user
 router = APIRouter(tags=["Grievance Form"])
 
 # Temporary directory for storing uploaded files
-TEMP_DIR = "/tmp/grievance_uploads"
+TEMP_DIR = "./grievance_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # Request/Response Models

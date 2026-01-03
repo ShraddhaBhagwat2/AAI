@@ -3,13 +3,15 @@ from datetime import datetime
 from typing import Dict
 import asyncio
 
-from services.AIAnalysis.db import get_database, AnalysisRecord
+from services.AIAnalysis.db import get_database as get_analysis_db, AnalysisRecord
+from services.AIFormFilling.src.db.connection import get_database as get_grievance_db
 from services.AIAnalysis.shared.schemas import GrievanceData, AnalysisResult
 from services.AIAnalysis.agents import (
     VectorEmbeddingAgent,
     PriorityScorerAgent,
     SmartRoutingAgent,
-    NotificationDispatcherAgent
+    NotificationDispatcherAgent,
+    DocumentAnalysisAgent
 )
 
 router = APIRouter()
@@ -19,45 +21,46 @@ vector_agent = VectorEmbeddingAgent()
 priority_agent = PriorityScorerAgent()
 routing_agent = SmartRoutingAgent()
 notification_agent = NotificationDispatcherAgent()
+document_agent = DocumentAnalysisAgent()
 
 async def monitor_grievance_submissions():
     """
-    Background worker that monitors the grievance_forms collection
-    for new submissions and triggers analysis pipeline.
+    Background worker that polls the grievance_forms collection every minute
+    for new submissions with status 'submitted' and triggers analysis pipeline.
     """
-    db = await get_database()
+    db = get_grievance_db()  # Synchronous call
     collection = db.grievance_forms
     
-    try:
-        # Use MongoDB change stream to watch for inserts
-        async with collection.watch() as change_stream:
-            async for change in change_stream:
-                if change['operationType'] == 'insert':
-                    doc = change['fullDocument']
-                    
-                    # Check if status is 'submitted'
-                    if doc.get('status') == 'submitted':
-                        print(f"New grievance submitted: {doc.get('form_id')}")
-                        
-                        # Extract GrievanceData from document
-                        grievance = GrievanceData(
-                            form_id=doc['form_id'],
-                            user_id=doc['user_id'],
-                            title=doc['title'],
-                            full_description=doc['full_description'],
-                            category=doc['category'],
-                            area_ward_name=doc['area_ward_name'],
-                            impacted_population=doc['impacted_population'],
-                            is_recurring=doc['is_recurring'],
-                            document_paths=doc.get('document_paths', [])
-                        )
-                        
-                        # Run analysis pipeline
-                        await run_analysis_pipeline(grievance)
-                        
-    except Exception as e:
-        print(f"Error in grievance monitoring: {e}")
-        # In production, implement retry logic or alerting
+    while True:
+        try:
+            print("Polling for new grievances...")
+            # Query for documents with status 'submitted'
+            cursor = collection.find({"status": "submitted"})
+            async for doc in cursor:
+                print(f"Processing new grievance: {doc.get('form_id')}")
+                
+                # Extract GrievanceData from document
+                grievance = GrievanceData(
+                    form_id=doc['form_id'],
+                    user_id=doc['user_id'],
+                    title=doc['title'],
+                    full_description=doc['full_description'],
+                    category=doc['category'],
+                    area_ward_name=doc['area_ward_name'],
+                    impacted_population=doc['impacted_population'],
+                    is_recurring=doc['is_recurring'],
+                    document_paths=doc.get('document_paths', [])
+                )
+                
+                # Run analysis pipeline
+                await run_analysis_pipeline(grievance)
+            
+            # Wait for 60 seconds before next poll
+            await asyncio.sleep(60)
+            
+        except Exception as e:
+            print(f"Error in grievance monitoring: {e}")
+            await asyncio.sleep(60)  # Wait before retrying
 
 @router.get("/")
 async def root():
@@ -118,6 +121,10 @@ async def run_analysis_pipeline(grievance: GrievanceData):
         else:
             status = "Assigned"
         
+        # Module D: Document Analysis
+        print(f"[D] Analyzing documents: {grievance.form_id}")
+        document_insights = await document_agent.analyze_documents(grievance.document_paths)
+        
         # Create analysis result
         analysis_result = AnalysisResult(
             form_id=grievance.form_id,
@@ -125,11 +132,12 @@ async def run_analysis_pipeline(grievance: GrievanceData):
             priority_score=priority_score,
             routing=routing,
             status=status,
-            analyzed_at=datetime.utcnow()
+            analyzed_at=datetime.utcnow(),
+            document_insights=document_insights
         )
         
-        # Module D: Notification Dispatch
-        print(f"[D] Dispatching notifications: {grievance.form_id}")
+        # Module E: Notification Dispatch
+        print(f"[E] Dispatching notifications: {grievance.form_id}")
         await notification_agent.dispatch_notifications(analysis_result)
         
         # Create citizen message for DB storage
@@ -159,7 +167,7 @@ async def run_analysis_pipeline(grievance: GrievanceData):
 
 async def save_analysis_record(grievance: GrievanceData, analysis: AnalysisResult):
     """Save analysis record to database"""
-    db = await get_database()
+    db = get_analysis_db()  # Synchronous call
     
     record = AnalysisRecord(
         form_id=analysis.form_id,
@@ -187,21 +195,25 @@ async def update_grievance_status(
     citizen_message: str
 ):
     """Update grievance form in AIFormFilling database"""
-    db = await get_database()
+    db = get_grievance_db()  # Synchronous call
     
     update_data = {
-        "status": "forwarded",  # Changed to "forwarded" as requested
+        "status": status,  # Changed to use the passed status ("assigned" or "linked")
         "analyzed_at": analysis.analyzed_at,
         "priority_score": analysis.priority_score.score,
+        "priority_reasoning": analysis.priority_score.reasoning,  # Added for citizen info
         "urgency_level": analysis.priority_score.urgency_level,
         "assigned_department": analysis.routing.department,
         "assigned_officer_id": analysis.routing.officer_id,
         "assigned_officer_name": analysis.routing.officer_name,
-        "message": citizen_message  # Added message field
+        "estimated_response_time": analysis.routing.estimated_response_time,
+        "message": citizen_message,  # Added message field
+        "document_insights": analysis.document_insights  # Added for citizen info
     }
     
     if analysis.vector_check.is_duplicate:
         update_data["parent_form_id"] = analysis.vector_check.parent_form_id
+        update_data["similarity_score"] = analysis.vector_check.similarity_score  # Added for citizen info
     
     await db.grievance_forms.update_one(
         {"form_id": form_id},
@@ -211,7 +223,7 @@ async def update_grievance_status(
 @router.get("/analysis/{form_id}")
 async def get_analysis(form_id: str):
     """Retrieve analysis record for a form"""
-    db = await get_database()
+    db = get_analysis_db()  # Synchronous call
     
     record = await db.analysis_records.find_one({"form_id": form_id})
     

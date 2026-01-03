@@ -17,6 +17,7 @@ class AnalysisRecord(BaseModel):
     estimated_response_time: str
     status: str
     analyzed_at: datetime = Field(default_factory=datetime.utcnow)
+    document_insights: Optional[str] = None  # Added for extracted document content
     
     class Config:
         json_schema_extra = {
@@ -25,6 +26,7 @@ class AnalysisRecord(BaseModel):
                 "user_id": "user123",
                 "is_duplicate": False,
                 "priority_score": 85,
-                "urgency_level": "high"
+                "urgency_level": "high",
+                "document_insights": "PDF Content: [extracted text]\n\nImage Insight: [vision analysis]"
             }
         }

@@ -36,3 +36,4 @@ class AnalysisResult(BaseModel):
     routing: RoutingResult
     status: str
     analyzed_at: datetime
+    document_insights: Optional[str] = None  # Added for extracted document content
