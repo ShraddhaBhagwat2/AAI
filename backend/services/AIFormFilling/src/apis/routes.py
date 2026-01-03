@@ -1,0 +1,322 @@
+import uuid
+from datetime import datetime
+from typing import Optional, List
+import os
+import shutil
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from pydantic import BaseModel
+
+from ..db.connection import get_collection
+from ..agents.form_extraction_agent import FormExtractionAgent
+from shared.utils.auth_middleware import get_current_user
+
+router = APIRouter(tags=["Grievance Form"])
+
+# Temporary directory for storing uploaded files
+TEMP_DIR = "/tmp/grievance_uploads"
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+# Request/Response Models
+class InitialSubmissionRequest(BaseModel):
+    text: str
+
+class ClarificationRequest(BaseModel):
+    session_id: str
+
+class FormSubmissionRequest(BaseModel):
+    session_id: str
+    confirmed: bool = True
+    edits: Optional[dict] = None
+
+class SessionResponse(BaseModel):
+    session_id: str
+    extracted_data: dict
+    missing_info: List[str]
+    clarification_questions: List[str]
+    is_complete: bool
+    message: str
+
+class FormResponse(BaseModel):
+    form_id: str
+    status: str
+    form_data: dict
+    message: str
+
+# Initialize agent
+agent = FormExtractionAgent()
+
+@router.post("/start", response_model=SessionResponse)
+async def start_grievance_session(
+    text: str = Form(...),
+    files: Optional[List[UploadFile]] = File(None),
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Start a new grievance form session.
+    The agent extracts structured data from the text and identifies missing information.
+    Accepts text and optional file uploads.
+    """
+    sessions_collection = get_collection("form_sessions")
+    
+    # Generate session ID
+    session_id = str(uuid.uuid4())
+    
+    # Store uploaded files in temp directory
+    document_paths = []
+    if files:
+        for file in files:
+            if file.filename:
+                file_path = os.path.join(TEMP_DIR, f"{session_id}_{file.filename}")
+                with open(file_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                document_paths.append(file_path)
+    
+    # Build additional context from file paths (for agent)
+    additional_context = ""
+    if document_paths:
+        additional_context = f"Attached files: {', '.join([os.path.basename(p) for p in document_paths])}"
+    
+    # Extract data using the agent
+    extracted_data = await agent.extract_from_text(text, additional_context)
+    
+    # Check for errors
+    if "error" in extracted_data:
+        missing_info = extracted_data.get("missing_info", ["all fields"])
+        clarification_questions = extracted_data.get("clarification_questions", [])
+    else:
+        missing_info = extracted_data.get("missing_info", [])
+        clarification_questions = extracted_data.get("clarification_questions", [])
+    
+    # Determine if form is complete
+    is_complete = len(missing_info) == 0 and "error" not in extracted_data
+    
+    # Create session document
+    session_doc = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "original_text": text,
+        "document_paths": document_paths,  # Store file paths instead of URLs
+        "extracted_data": extracted_data,
+        "missing_info": missing_info,
+        "clarification_questions": clarification_questions,
+        "conversation_history": [
+            {"role": "user", "content": text, "timestamp": datetime.utcnow().isoformat()}
+        ],
+        "is_complete": is_complete,
+        "final_form": None,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    await sessions_collection.insert_one(session_doc)
+    
+    # Generate response message
+    if is_complete:
+        message = "I've drafted your grievance report. Please review and confirm the details."
+    else:
+        dept = extracted_data.get("category", "the relevant department")
+        message = f"I've drafted your report for {dept}. "
+        if clarification_questions:
+            message += clarification_questions[0]
+        elif missing_info:
+            message += f"I need a bit more information: {', '.join(missing_info[:2])}"
+    
+    return SessionResponse(
+        session_id=session_id,
+        extracted_data=extracted_data,
+        missing_info=missing_info,
+        clarification_questions=clarification_questions,
+        is_complete=is_complete,
+        message=message
+    )
+
+@router.post("/clarify", response_model=SessionResponse)
+async def provide_clarification(request: ClarificationRequest, user_response: str, user_id: str = Depends(get_current_user)):
+    """
+    Provide additional information to clarify missing fields.
+    The agent updates the form based on the user's response.
+    """
+    sessions_collection = get_collection("form_sessions")
+    
+    # Get existing session
+    session = await sessions_collection.find_one({"session_id": request.session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Verify session belongs to user
+    if session.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Process clarification with agent
+    clarification_result = await agent.process_clarification(
+        current_data=session["extracted_data"],
+        missing_info=session["missing_info"],
+        user_response=user_response
+    )
+    
+    # Update extracted data with new fields
+    updated_data = {**session["extracted_data"]}
+    updated_fields = clarification_result.get("updated_fields", {})
+    updated_data.update(updated_fields)
+    
+    # Update missing info and questions
+    still_missing = clarification_result.get("still_missing", [])
+    new_questions = clarification_result.get("new_questions", [])
+    is_complete = clarification_result.get("is_complete", False)
+    
+    # If agent says complete, double-check
+    if is_complete:
+        completion_check = await agent.check_form_completion(updated_data)
+        is_complete = completion_check.get("is_complete", False)
+        if not is_complete:
+            still_missing = completion_check.get("missing_critical_fields", [])
+            new_questions = completion_check.get("suggested_questions", [])
+    
+    # Update conversation history
+    conversation_history = session.get("conversation_history", [])
+    conversation_history.append({
+        "role": "user",
+        "content": user_response,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    
+    # Update session in database
+    await sessions_collection.update_one(
+        {"session_id": request.session_id},
+        {
+            "$set": {
+                "extracted_data": updated_data,
+                "missing_info": still_missing,
+                "clarification_questions": new_questions,
+                "conversation_history": conversation_history,
+                "is_complete": is_complete,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    # Generate response message
+    if is_complete:
+        message = "Great! Your grievance report is now complete. Please review and confirm."
+    elif new_questions:
+        message = new_questions[0]
+    else:
+        message = "Thank you for the information. Is there anything else you'd like to add?"
+    
+    return SessionResponse(
+        session_id=request.session_id,
+        extracted_data=updated_data,
+        missing_info=still_missing,
+        clarification_questions=new_questions,
+        is_complete=is_complete,
+        message=message
+    )
+
+@router.get("/session/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str, user_id: str = Depends(get_current_user)):
+    """Get the current state of a grievance form session."""
+    sessions_collection = get_collection("form_sessions")
+    
+    session = await sessions_collection.find_one({"session_id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Verify session belongs to user
+    if session.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return SessionResponse(
+        session_id=session["session_id"],
+        extracted_data=session["extracted_data"],
+        missing_info=session["missing_info"],
+        clarification_questions=session["clarification_questions"],
+        is_complete=session["is_complete"],
+        message="Session retrieved successfully"
+    )
+
+@router.post("/submit", response_model=FormResponse)
+async def submit_grievance_form(request: FormSubmissionRequest, user_id: str = Depends(get_current_user)):
+    """
+    Submit the final grievance form after user confirmation.
+    Allows optional edits before final submission.
+    """
+    sessions_collection = get_collection("form_sessions")
+    forms_collection = get_collection("grievance_forms")
+    
+    # Get session
+    session = await sessions_collection.find_one({"session_id": request.session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Verify session belongs to user
+    if session.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Prepare final form data
+    form_data = {**session["extracted_data"]}
+    
+    # Remove agent metadata from form data
+    form_data.pop("missing_info", None)
+    form_data.pop("clarification_questions", None)
+    form_data.pop("error", None)
+    form_data.pop("raw_response", None)
+    
+    # Apply user edits if provided
+    if request.edits:
+        form_data.update(request.edits)
+    
+    # Generate form ID
+    form_id = str(uuid.uuid4())
+    
+    # Create final form document
+    final_form = {
+        "form_id": form_id,
+        "session_id": request.session_id,
+        "user_id": user_id,
+        "original_text": session["original_text"],
+        "document_paths": session.get("document_paths", []),  # Store file paths
+        **form_data,
+        "status": "submitted",
+        "created_at": datetime.utcnow(),
+        "submitted_at": datetime.utcnow()
+    }
+    
+    # Save to forms collection
+    await forms_collection.insert_one(final_form)
+    
+    # Update session with final form reference
+    await sessions_collection.update_one(
+        {"session_id": request.session_id},
+        {
+            "$set": {
+                "final_form": form_id,
+                "is_complete": True,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return FormResponse(
+        form_id=form_id,
+        status="submitted",
+        form_data=form_data,
+        message=f"Your grievance has been submitted successfully! Reference ID: {form_id}"
+    )
+
+@router.get("/form/{form_id}")
+async def get_grievance_form(form_id: str, user_id: str = Depends(get_current_user)):
+    """Get a submitted grievance form by ID."""
+    forms_collection = get_collection("grievance_forms")
+    
+    form = await forms_collection.find_one({"form_id": form_id})
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Verify form belongs to user
+    if form.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Remove MongoDB _id for JSON serialization
+    form.pop("_id", None)
+    
+    return form
