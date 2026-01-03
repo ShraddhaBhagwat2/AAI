@@ -7,7 +7,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem("access_token"));
-  const [userType, setUserType] = useState(localStorage.getItem("user_type") || "citizen"); // citizen or staff
+  const [userType, setUserType] = useState(
+    localStorage.getItem("user_type") || "citizen"
+  ); // citizen or staff
 
   // Check if user is logged in on mount
   useEffect(() => {
@@ -40,11 +42,11 @@ export const AuthProvider = ({ children }) => {
   const login = async (identifier, password, isStaff = false) => {
     try {
       let response;
-      
+
       if (isStaff) {
         // For staff/admin, use the superuser auth endpoint
         response = await authAPI.adminLogin({ email: identifier, password });
-        
+
         // Admin login returns user data in response, not a separate call needed
         const { access_token, user } = response.data;
         localStorage.setItem("access_token", access_token);
@@ -56,12 +58,12 @@ export const AuthProvider = ({ children }) => {
         // For citizens, use mobile_number
         response = await authAPI.login({ mobile_number: identifier, password });
         const { access_token } = response.data;
-        
+
         localStorage.setItem("access_token", access_token);
         localStorage.setItem("user_type", "citizen");
         setToken(access_token);
         setUserType("citizen");
-        
+
         // Fetch user data for citizens
         const userResponse = await authAPI.getCurrentUser();
         setUser(userResponse.data);
@@ -70,21 +72,21 @@ export const AuthProvider = ({ children }) => {
       return { success: true };
     } catch (error) {
       console.error("Login failed:", error);
-      
+
       // Extract error message properly
       let errorMessage = "Invalid credentials";
       if (error.response?.data?.detail) {
         const detail = error.response.data.detail;
         // Handle array of validation errors
         if (Array.isArray(detail)) {
-          errorMessage = detail.map(err => err.msg || err.message).join(", ");
+          errorMessage = detail.map((err) => err.msg || err.message).join(", ");
         } else if (typeof detail === "string") {
           errorMessage = detail;
         } else if (detail.msg) {
           errorMessage = detail.msg;
         }
       }
-      
+
       return {
         success: false,
         error: errorMessage,
@@ -132,7 +134,10 @@ export const AuthProvider = ({ children }) => {
         });
         return { success: true, message: "Password changed successfully" };
       } else {
-        return { success: false, error: "Password change not available for citizens yet" };
+        return {
+          success: false,
+          error: "Password change not available for citizens yet",
+        };
       }
     } catch (error) {
       console.error("Change password failed:", error);
@@ -140,7 +145,7 @@ export const AuthProvider = ({ children }) => {
       if (error.response?.data?.detail) {
         const detail = error.response.data.detail;
         if (Array.isArray(detail)) {
-          errorMessage = detail.map(err => err.msg || err.message).join(", ");
+          errorMessage = detail.map((err) => err.msg || err.message).join(", ");
         } else if (typeof detail === "string") {
           errorMessage = detail;
         }
@@ -151,7 +156,16 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loading, userType, login, signup, logout, changePassword }}
+      value={{
+        user,
+        token,
+        loading,
+        userType,
+        login,
+        signup,
+        logout,
+        changePassword,
+      }}
     >
       {children}
     </AuthContext.Provider>

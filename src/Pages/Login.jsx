@@ -29,9 +29,13 @@ export default function Login() {
 
     // Determine if user is staff (admin/officer) or citizen
     const isStaff = role === "admin" || role === "officer";
-    
+
     // Use real API authentication for all roles
-    const result = await login(formData.mobile_number, formData.password, isStaff);
+    const result = await login(
+      formData.mobile_number,
+      formData.password,
+      isStaff
+    );
 
     if (result.success) {
       // Navigate based on role selection

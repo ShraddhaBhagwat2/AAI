@@ -1,14 +1,39 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  ShieldAlert, Users, Plus, Settings, TrendingUp, Building2, UserPlus, X, 
-  Search, Filter, ChevronLeft, ChevronRight, Eye, Edit2, MapPin, Phone, Mail,
-  Briefcase, RefreshCw, CheckCircle, AlertCircle
-} from 'lucide-react';
-import { adminAPI } from '../services/api';
+import React, { useState, useEffect } from "react";
+import {
+  ShieldAlert,
+  Users,
+  Plus,
+  Settings,
+  TrendingUp,
+  Building2,
+  UserPlus,
+  X,
+  Search,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Edit2,
+  MapPin,
+  Phone,
+  Mail,
+  Briefcase,
+  RefreshCw,
+  CheckCircle,
+  AlertCircle,
+} from "lucide-react";
+import { adminAPI } from "../services/api";
 
 // Constants
-const DEPARTMENTS = ['Electricity', 'Water', 'Sanitation', 'Roads', 'Health', 'Education'];
-const ROLES = ['SUPER_ADMIN', 'DEPT_ADMIN', 'NODAL_OFFICER'];
+const DEPARTMENTS = [
+  "Electricity",
+  "Water",
+  "Sanitation",
+  "Roads",
+  "Health",
+  "Education",
+];
+const ROLES = ["SUPER_ADMIN", "DEPT_ADMIN", "NODAL_OFFICER"];
 
 export default function AdminDashboard() {
   // State for users list
@@ -17,43 +42,43 @@ export default function AdminDashboard() {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
-  
+
   // Filters
   const [filters, setFilters] = useState({
-    dept: '',
-    ward: '',
-    role: ''
+    dept: "",
+    ward: "",
+    role: "",
   });
-  
+
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showJurisdictionModal, setShowJurisdictionModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  
+
   // Create user form
   const [createForm, setCreateForm] = useState({
-    full_name: '',
-    employee_id: '',
-    email: '',
-    phone_number: '',
-    role: 'NODAL_OFFICER',
-    dept: 'Electricity',
-    ward: '',
-    designation: ''
+    full_name: "",
+    employee_id: "",
+    email: "",
+    phone_number: "",
+    role: "NODAL_OFFICER",
+    dept: "Electricity",
+    ward: "",
+    designation: "",
   });
   const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState('');
-  const [createSuccess, setCreateSuccess] = useState('');
-  
+  const [createError, setCreateError] = useState("");
+  const [createSuccess, setCreateSuccess] = useState("");
+
   // Jurisdiction update form
   const [jurisdictionForm, setJurisdictionForm] = useState({
-    staff_id: '',
-    new_ward: '',
-    new_dept: ''
+    staff_id: "",
+    new_ward: "",
+    new_dept: "",
   });
   const [jurisdictionLoading, setJurisdictionLoading] = useState(false);
-  const [jurisdictionError, setJurisdictionError] = useState('');
+  const [jurisdictionError, setJurisdictionError] = useState("");
 
   // Fetch users function
   const fetchUsers = async () => {
@@ -62,12 +87,12 @@ export default function AdminDashboard() {
       const response = await adminAPI.getUsers({
         ...filters,
         page,
-        page_size: pageSize
+        page_size: pageSize,
       });
       setUsers(response.data.users || []);
       setTotalCount(response.data.total_count || 0);
     } catch (error) {
-      console.error('Failed to fetch users:', error);
+      console.error("Failed to fetch users:", error);
       setUsers([]);
     }
     setLoading(false);
@@ -82,29 +107,29 @@ export default function AdminDashboard() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setCreateLoading(true);
-    setCreateError('');
-    setCreateSuccess('');
-    
+    setCreateError("");
+    setCreateSuccess("");
+
     try {
       await adminAPI.createUser(createForm);
-      setCreateSuccess('User created successfully!');
+      setCreateSuccess("User created successfully!");
       setCreateForm({
-        full_name: '',
-        employee_id: '',
-        email: '',
-        phone_number: '',
-        role: 'NODAL_OFFICER',
-        dept: 'Electricity',
-        ward: '',
-        designation: ''
+        full_name: "",
+        employee_id: "",
+        email: "",
+        phone_number: "",
+        role: "NODAL_OFFICER",
+        dept: "Electricity",
+        ward: "",
+        designation: "",
       });
       fetchUsers();
       setTimeout(() => {
         setShowCreateModal(false);
-        setCreateSuccess('');
+        setCreateSuccess("");
       }, 2000);
     } catch (error) {
-      setCreateError(error.response?.data?.detail || 'Failed to create user');
+      setCreateError(error.response?.data?.detail || "Failed to create user");
     }
     setCreateLoading(false);
   };
@@ -115,32 +140,34 @@ export default function AdminDashboard() {
       setSelectedUser(response.data);
       setShowDetailsModal(true);
     } catch (error) {
-      console.error('Failed to fetch user details:', error);
+      console.error("Failed to fetch user details:", error);
     }
   };
 
   const openJurisdictionModal = (user) => {
     setJurisdictionForm({
       staff_id: user.staff_id,
-      new_ward: user.metadata?.ward || '',
-      new_dept: user.metadata?.dept || ''
+      new_ward: user.metadata?.ward || "",
+      new_dept: user.metadata?.dept || "",
     });
     setSelectedUser(user);
     setShowJurisdictionModal(true);
-    setJurisdictionError('');
+    setJurisdictionError("");
   };
 
   const handleUpdateJurisdiction = async (e) => {
     e.preventDefault();
     setJurisdictionLoading(true);
-    setJurisdictionError('');
-    
+    setJurisdictionError("");
+
     try {
       await adminAPI.updateJurisdiction(jurisdictionForm);
       fetchUsers();
       setShowJurisdictionModal(false);
     } catch (error) {
-      setJurisdictionError(error.response?.data?.detail || 'Failed to update jurisdiction');
+      setJurisdictionError(
+        error.response?.data?.detail || "Failed to update jurisdiction"
+      );
     }
     setJurisdictionLoading(false);
   };
@@ -156,16 +183,20 @@ export default function AdminDashboard() {
             <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
               <ShieldAlert size={22} />
             </div>
-            <span className="font-bold text-xl tracking-wide">ADMIN CONTROL PANEL</span>
+            <span className="font-bold text-xl tracking-wide">
+              ADMIN CONTROL PANEL
+            </span>
           </div>
           <div className="flex gap-4 text-sm items-center">
-            <span className="text-slate-400">Logged in as: <strong className="text-white">System Admin</strong></span>
-            <button 
+            <span className="text-slate-400">
+              Logged in as: <strong className="text-white">System Admin</strong>
+            </span>
+            <button
               onClick={fetchUsers}
               className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
               title="Refresh"
             >
-              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
         </div>
@@ -175,10 +206,14 @@ export default function AdminDashboard() {
         {/* Header */}
         <header className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-slate-800">User Management</h1>
-            <p className="text-slate-500 mt-1">Manage staff users, roles and jurisdictions</p>
+            <h1 className="text-3xl font-bold text-slate-800">
+              User Management
+            </h1>
+            <p className="text-slate-500 mt-1">
+              Manage staff users, roles and jurisdictions
+            </p>
           </div>
-          <button 
+          <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
           >
@@ -194,7 +229,9 @@ export default function AdminDashboard() {
                 <Users size={24} />
               </div>
               <div>
-                <div className="text-3xl font-bold text-slate-800">{totalCount}</div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {totalCount}
+                </div>
                 <div className="text-sm text-slate-500">Total Users</div>
               </div>
             </div>
@@ -205,7 +242,9 @@ export default function AdminDashboard() {
                 <CheckCircle size={24} />
               </div>
               <div>
-                <div className="text-3xl font-bold text-slate-800">{users.filter(u => u.account_status?.is_active).length}</div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {users.filter((u) => u.account_status?.is_active).length}
+                </div>
                 <div className="text-sm text-slate-500">Active Users</div>
               </div>
             </div>
@@ -216,7 +255,9 @@ export default function AdminDashboard() {
                 <Building2 size={24} />
               </div>
               <div>
-                <div className="text-3xl font-bold text-slate-800">{DEPARTMENTS.length}</div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {DEPARTMENTS.length}
+                </div>
                 <div className="text-sm text-slate-500">Departments</div>
               </div>
             </div>
@@ -227,7 +268,9 @@ export default function AdminDashboard() {
                 <ShieldAlert size={24} />
               </div>
               <div>
-                <div className="text-3xl font-bold text-slate-800">{ROLES.length}</div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {ROLES.length}
+                </div>
                 <div className="text-sm text-slate-500">Role Types</div>
               </div>
             </div>
@@ -241,35 +284,43 @@ export default function AdminDashboard() {
               <Filter size={18} />
               <span className="font-semibold">Filters:</span>
             </div>
-            
+
             <select
               value={filters.dept}
-              onChange={(e) => setFilters({...filters, dept: e.target.value})}
+              onChange={(e) => setFilters({ ...filters, dept: e.target.value })}
               className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
             >
               <option value="">All Departments</option>
-              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              {DEPARTMENTS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
             </select>
-            
+
             <select
               value={filters.role}
-              onChange={(e) => setFilters({...filters, role: e.target.value})}
+              onChange={(e) => setFilters({ ...filters, role: e.target.value })}
               className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
             >
               <option value="">All Roles</option>
-              {ROLES.map(r => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r.replace("_", " ")}
+                </option>
+              ))}
             </select>
-            
+
             <input
               type="text"
               placeholder="Filter by Ward..."
               value={filters.ward}
-              onChange={(e) => setFilters({...filters, ward: e.target.value})}
+              onChange={(e) => setFilters({ ...filters, ward: e.target.value })}
               className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
             />
-            
+
             <button
-              onClick={() => setFilters({ dept: '', ward: '', role: '' })}
+              onClick={() => setFilters({ dept: "", ward: "", role: "" })}
               className="px-4 py-2 text-slate-600 hover:text-red-600 transition-colors"
             >
               Clear Filters
@@ -283,13 +334,27 @@ export default function AdminDashboard() {
             <table className="w-full text-left">
               <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">User</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Employee ID</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Role</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Department</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ward</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    User
+                  </th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Employee ID
+                  </th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Role
+                  </th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Department
+                  </th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Ward
+                  </th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -305,47 +370,73 @@ export default function AdminDashboard() {
                 ) : users.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="p-8 text-center text-slate-500">
-                      No users found. Try adjusting filters or create a new user.
+                      No users found. Try adjusting filters or create a new
+                      user.
                     </td>
                   </tr>
                 ) : (
                   users.map((user) => (
-                    <tr key={user.staff_id} className="hover:bg-blue-50 transition-colors">
+                    <tr
+                      key={user.staff_id}
+                      className="hover:bg-blue-50 transition-colors"
+                    >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                            {user.full_name?.charAt(0) || '?'}
+                            {user.full_name?.charAt(0) || "?"}
                           </div>
                           <div>
-                            <div className="font-semibold text-slate-800">{user.full_name}</div>
-                            <div className="text-xs text-slate-500">{user.email}</div>
+                            <div className="font-semibold text-slate-800">
+                              {user.full_name}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {user.email}
+                            </div>
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 font-mono text-sm text-slate-600">{user.employee_id}</td>
+                      <td className="p-4 font-mono text-sm text-slate-600">
+                        {user.employee_id}
+                      </td>
                       <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                          user.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700' :
-                          user.role === 'DEPT_ADMIN' ? 'bg-blue-100 text-blue-700' :
-                          'bg-green-100 text-green-700'
-                        }`}>
-                          {user.role?.replace('_', ' ')}
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            user.role === "SUPER_ADMIN"
+                              ? "bg-purple-100 text-purple-700"
+                              : user.role === "DEPT_ADMIN"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          {user.role?.replace("_", " ")}
                         </span>
                       </td>
                       <td className="p-4">
                         <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
-                          {user.metadata?.dept || '-'}
+                          {user.metadata?.dept || "-"}
                         </span>
                       </td>
-                      <td className="p-4 text-sm text-slate-600">{user.metadata?.ward || '-'}</td>
+                      <td className="p-4 text-sm text-slate-600">
+                        {user.metadata?.ward || "-"}
+                      </td>
                       <td className="p-4">
-                        <span className={`flex items-center gap-1 text-xs font-bold ${
-                          user.account_status?.is_active ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          <span className={`w-2 h-2 rounded-full ${
-                            user.account_status?.is_active ? 'bg-green-500' : 'bg-red-500'
-                          }`}></span>
-                          {user.account_status?.is_active ? 'Active' : 'Inactive'}
+                        <span
+                          className={`flex items-center gap-1 text-xs font-bold ${
+                            user.account_status?.is_active
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              user.account_status?.is_active
+                                ? "bg-green-500"
+                                : "bg-red-500"
+                            }`}
+                          ></span>
+                          {user.account_status?.is_active
+                            ? "Active"
+                            : "Inactive"}
                         </span>
                       </td>
                       <td className="p-4">
@@ -372,16 +463,17 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
-          
+
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between p-4 border-t border-slate-200 bg-slate-50">
               <div className="text-sm text-slate-600">
-                Showing {((page - 1) * pageSize) + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} users
+                Showing {(page - 1) * pageSize + 1} to{" "}
+                {Math.min(page * pageSize, totalCount)} of {totalCount} users
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
                   className="p-2 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
@@ -391,7 +483,7 @@ export default function AdminDashboard() {
                   Page {page} of {totalPages}
                 </span>
                 <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
                   className="p-2 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
@@ -411,11 +503,14 @@ export default function AdminDashboard() {
               <h3 className="font-bold text-xl flex items-center gap-3">
                 <UserPlus size={24} /> Create New Staff User
               </h3>
-              <button onClick={() => setShowCreateModal(false)} className="hover:bg-white/20 p-2 rounded-lg transition-colors">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="hover:bg-white/20 p-2 rounded-lg transition-colors"
+              >
                 <X size={24} />
               </button>
             </div>
-            
+
             <form onSubmit={handleCreateUser} className="p-6 space-y-6">
               {createError && (
                 <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-700 flex items-start gap-3 animate-shake">
@@ -423,110 +518,162 @@ export default function AdminDashboard() {
                   <div>{createError}</div>
                 </div>
               )}
-              
+
               {createSuccess && (
                 <div className="p-4 bg-green-50 border-l-4 border-green-500 rounded-lg text-green-700 flex items-center gap-3">
                   <CheckCircle size={20} />
                   <div>{createSuccess}</div>
                 </div>
               )}
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Full Name *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Full Name *
+                  </label>
                   <input
                     type="text"
                     value={createForm.full_name}
-                    onChange={(e) => setCreateForm({...createForm, full_name: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({
+                        ...createForm,
+                        full_name: e.target.value,
+                      })
+                    }
                     placeholder="John Doe"
                     required
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Employee ID *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Employee ID *
+                  </label>
                   <input
                     type="text"
                     value={createForm.employee_id}
-                    onChange={(e) => setCreateForm({...createForm, employee_id: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({
+                        ...createForm,
+                        employee_id: e.target.value,
+                      })
+                    }
                     placeholder="EMP-2024-001"
                     required
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Email *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Email *
+                  </label>
                   <input
                     type="email"
                     value={createForm.email}
-                    onChange={(e) => setCreateForm({...createForm, email: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, email: e.target.value })
+                    }
                     placeholder="john@govt.in"
                     required
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Phone Number *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Phone Number *
+                  </label>
                   <input
                     type="tel"
                     value={createForm.phone_number}
-                    onChange={(e) => setCreateForm({...createForm, phone_number: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({
+                        ...createForm,
+                        phone_number: e.target.value,
+                      })
+                    }
                     placeholder="+91 9876543210"
                     required
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Role *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Role *
+                  </label>
                   <select
                     value={createForm.role}
-                    onChange={(e) => setCreateForm({...createForm, role: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, role: e.target.value })
+                    }
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   >
-                    {ROLES.map(r => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r.replace("_", " ")}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Department *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Department *
+                  </label>
                   <select
                     value={createForm.dept}
-                    onChange={(e) => setCreateForm({...createForm, dept: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, dept: e.target.value })
+                    }
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   >
-                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                    {DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Ward</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Ward
+                  </label>
                   <input
                     type="text"
                     value={createForm.ward}
-                    onChange={(e) => setCreateForm({...createForm, ward: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, ward: e.target.value })
+                    }
                     placeholder="Ward 12"
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Designation</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                    Designation
+                  </label>
                   <input
                     type="text"
                     value={createForm.designation}
-                    onChange={(e) => setCreateForm({...createForm, designation: e.target.value})}
+                    onChange={(e) =>
+                      setCreateForm({
+                        ...createForm,
+                        designation: e.target.value,
+                      })
+                    }
                     placeholder="Junior Engineer"
                     className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
                   />
                 </div>
               </div>
-              
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
@@ -565,85 +712,130 @@ export default function AdminDashboard() {
               <h3 className="font-bold text-xl flex items-center gap-3">
                 <Eye size={24} /> User Details
               </h3>
-              <button onClick={() => setShowDetailsModal(false)} className="hover:bg-white/20 p-2 rounded-lg transition-colors">
+              <button
+                onClick={() => setShowDetailsModal(false)}
+                className="hover:bg-white/20 p-2 rounded-lg transition-colors"
+              >
                 <X size={24} />
               </button>
             </div>
-            
+
             <div className="p-6">
               <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-200">
                 <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                  {selectedUser.full_name?.charAt(0) || '?'}
+                  {selectedUser.full_name?.charAt(0) || "?"}
                 </div>
                 <div>
-                  <h4 className="text-xl font-bold text-slate-800">{selectedUser.full_name}</h4>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    selectedUser.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700' :
-                    selectedUser.role === 'DEPT_ADMIN' ? 'bg-blue-100 text-blue-700' :
-                    'bg-green-100 text-green-700'
-                  }`}>
-                    {selectedUser.role?.replace('_', ' ')}
+                  <h4 className="text-xl font-bold text-slate-800">
+                    {selectedUser.full_name}
+                  </h4>
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      selectedUser.role === "SUPER_ADMIN"
+                        ? "bg-purple-100 text-purple-700"
+                        : selectedUser.role === "DEPT_ADMIN"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-green-100 text-green-700"
+                    }`}
+                  >
+                    {selectedUser.role?.replace("_", " ")}
                   </span>
                 </div>
               </div>
-              
+
               <div className="space-y-4">
                 <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
                   <Mail className="text-slate-400" size={20} />
                   <div>
-                    <div className="text-xs text-slate-500 uppercase font-bold">Email</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Email
+                    </div>
                     <div className="text-slate-800">{selectedUser.email}</div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
                   <Phone className="text-slate-400" size={20} />
                   <div>
-                    <div className="text-xs text-slate-500 uppercase font-bold">Phone</div>
-                    <div className="text-slate-800">{selectedUser.phone_number}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Phone
+                    </div>
+                    <div className="text-slate-800">
+                      {selectedUser.phone_number}
+                    </div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
                   <Briefcase className="text-slate-400" size={20} />
                   <div>
-                    <div className="text-xs text-slate-500 uppercase font-bold">Employee ID</div>
-                    <div className="text-slate-800 font-mono">{selectedUser.employee_id}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Employee ID
+                    </div>
+                    <div className="text-slate-800 font-mono">
+                      {selectedUser.employee_id}
+                    </div>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3 bg-slate-50 rounded-lg">
-                    <div className="text-xs text-slate-500 uppercase font-bold">Department</div>
-                    <div className="text-slate-800">{selectedUser.metadata?.dept || '-'}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Department
+                    </div>
+                    <div className="text-slate-800">
+                      {selectedUser.metadata?.dept || "-"}
+                    </div>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg">
-                    <div className="text-xs text-slate-500 uppercase font-bold">Ward</div>
-                    <div className="text-slate-800">{selectedUser.metadata?.ward || '-'}</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Ward
+                    </div>
+                    <div className="text-slate-800">
+                      {selectedUser.metadata?.ward || "-"}
+                    </div>
                   </div>
                 </div>
-                
+
                 <div className="p-3 bg-slate-50 rounded-lg">
-                  <div className="text-xs text-slate-500 uppercase font-bold">Designation</div>
-                  <div className="text-slate-800">{selectedUser.metadata?.designation || '-'}</div>
+                  <div className="text-xs text-slate-500 uppercase font-bold">
+                    Designation
+                  </div>
+                  <div className="text-slate-800">
+                    {selectedUser.metadata?.designation || "-"}
+                  </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                   <div>
-                    <div className="text-xs text-slate-500 uppercase font-bold">Account Status</div>
-                    <div className={`font-bold ${selectedUser.account_status?.is_active ? 'text-green-600' : 'text-red-600'}`}>
-                      {selectedUser.account_status?.is_active ? 'Active' : 'Inactive'}
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Account Status
+                    </div>
+                    <div
+                      className={`font-bold ${
+                        selectedUser.account_status?.is_active
+                          ? "text-green-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {selectedUser.account_status?.is_active
+                        ? "Active"
+                        : "Inactive"}
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs text-slate-500 uppercase font-bold">Created</div>
+                    <div className="text-xs text-slate-500 uppercase font-bold">
+                      Created
+                    </div>
                     <div className="text-slate-600 text-sm">
-                      {selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleDateString() : '-'}
+                      {selectedUser.created_at
+                        ? new Date(selectedUser.created_at).toLocaleDateString()
+                        : "-"}
                     </div>
                   </div>
                 </div>
               </div>
-              
+
               <button
                 onClick={() => setShowDetailsModal(false)}
                 className="w-full mt-6 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold transition-colors"
@@ -663,11 +855,14 @@ export default function AdminDashboard() {
               <h3 className="font-bold text-xl flex items-center gap-3">
                 <MapPin size={24} /> Update Jurisdiction
               </h3>
-              <button onClick={() => setShowJurisdictionModal(false)} className="hover:bg-white/20 p-2 rounded-lg transition-colors">
+              <button
+                onClick={() => setShowJurisdictionModal(false)}
+                className="hover:bg-white/20 p-2 rounded-lg transition-colors"
+              >
                 <X size={24} />
               </button>
             </div>
-            
+
             <form onSubmit={handleUpdateJurisdiction} className="p-6 space-y-6">
               {jurisdictionError && (
                 <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-700 flex items-start gap-3 animate-shake">
@@ -675,37 +870,61 @@ export default function AdminDashboard() {
                   <div>{jurisdictionError}</div>
                 </div>
               )}
-              
+
               <div className="p-4 bg-slate-50 rounded-lg">
-                <div className="text-sm text-slate-500">Updating jurisdiction for:</div>
-                <div className="font-bold text-slate-800">{selectedUser.full_name}</div>
-                <div className="text-xs text-slate-500 mt-1">Staff ID: {selectedUser.staff_id}</div>
+                <div className="text-sm text-slate-500">
+                  Updating jurisdiction for:
+                </div>
+                <div className="font-bold text-slate-800">
+                  {selectedUser.full_name}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  Staff ID: {selectedUser.staff_id}
+                </div>
               </div>
-              
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">New Ward *</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                  New Ward *
+                </label>
                 <input
                   type="text"
                   value={jurisdictionForm.new_ward}
-                  onChange={(e) => setJurisdictionForm({...jurisdictionForm, new_ward: e.target.value})}
+                  onChange={(e) =>
+                    setJurisdictionForm({
+                      ...jurisdictionForm,
+                      new_ward: e.target.value,
+                    })
+                  }
                   placeholder="Ward 15"
                   required
                   className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-slate-50"
                 />
               </div>
-              
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">New Department (Optional)</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                  New Department (Optional)
+                </label>
                 <select
                   value={jurisdictionForm.new_dept}
-                  onChange={(e) => setJurisdictionForm({...jurisdictionForm, new_dept: e.target.value})}
+                  onChange={(e) =>
+                    setJurisdictionForm({
+                      ...jurisdictionForm,
+                      new_dept: e.target.value,
+                    })
+                  }
                   className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-slate-50"
                 >
                   <option value="">Keep Current Department</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {DEPARTMENTS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
                 </select>
               </div>
-              
+
               <div className="flex gap-3">
                 <button
                   type="submit"
