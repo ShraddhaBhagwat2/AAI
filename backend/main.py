@@ -10,17 +10,28 @@ from services.AIFormFilling.src.apis.routes import router as grievance_router
 from services.AIFormFilling.src.db.connection import connect_to_mongo, close_mongo_connection
 # from services.AIAnalysis.apis.routes import router as analysis_router, monitor_grievance_submissions
 
+# Import SuperUser service components
+from services.superuser_services.config import settings as superuser_settings
+from services.superuser_services.db.connection import connect_to_mongo as connect_superuser_mongo, close_mongo_connection as close_superuser_mongo
+from services.superuser_services.utils.seed_data import create_initial_superadmin, seed_sample_data
+from services.superuser_services.apis.auth_apis import router as auth_router
+from services.superuser_services.apis.admin_apis import router as admin_router
+
 load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    await connect_to_mongo()
+    await connect_to_mongo()  # For grievance service
+    await connect_superuser_mongo()  # For SuperUser service
+    await create_initial_superadmin()
+    await seed_sample_data()
     # Start background worker to monitor grievance submissions
     # asyncio.create_task(monitor_grievance_submissions())
     yield
     # Shutdown
-    await close_mongo_connection()
+    await close_mongo_connection()  # For grievance service
+    await close_superuser_mongo()  # For SuperUser service
 
 app = FastAPI(
     title="GFG Backend",
@@ -40,6 +51,10 @@ app.add_middleware(
 app.include_router(user_router, prefix="/users", tags=["users"])
 app.include_router(grievance_router, prefix="/grievance")
 # app.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
+
+# Include SuperUser routers
+app.include_router(auth_router, prefix="/superuser/auth")
+app.include_router(admin_router, prefix="/superuser/admin")
 
 if __name__ == "__main__":
     import uvicorn
