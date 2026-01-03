@@ -11,6 +11,11 @@ class NotificationDispatcherAgent:
         """
         Send notifications to both citizen and assigned officer
         """
+        # Skip if notification service URL is not configured
+        if not self.notification_service_url:
+            print("Notification service URL not configured, skipping notifications.")
+            return
+        
         # Notification for citizen
         citizen_notification = self._create_citizen_notification(analysis)
         await self._send_notification(citizen_notification)

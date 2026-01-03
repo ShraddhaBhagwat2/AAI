@@ -70,6 +70,7 @@ class NotificationService:
             temp_password
         )
         
+        print("Password", temp_password)
         # Execute both tasks concurrently
         email_result, sms_result = await asyncio.gather(
             email_task, sms_task, return_exceptions=True

@@ -2,22 +2,22 @@ import httpx
 from typing import Dict, Optional
 from services.AIAnalysis.shared.schemas import GrievanceData, RoutingResult
 from services.AIAnalysis.utils.config import settings
+from services.superuser_services.db.connection import get_database as get_superuser_db
 
 class SmartRoutingAgent:
     def __init__(self):
-        self.user_service_url = settings.USER_SERVICE_URL
         
         # Department mapping
         self.department_mapping = {
-            "Electricity": "Electrical Department",
-            "Water Supply": "Water Works Department",
-            "Roads": "Public Works Department",
-            "Sanitation": "Sanitation Department",
-            "Street Lights": "Electrical Department",
-            "Drainage": "Sanitation Department",
-            "Public Safety": "Municipal Police",
-            "Parks": "Horticulture Department",
-            "Buildings": "Building Department"
+            "Electricity": "Electricity",
+            "Water Supply": "Water Supply",
+            "Roads": "Roads",
+            "Sanitation": "Sanitation",
+            "Street Lights": "Street Lights",
+            "Drainage": "Drainage",
+            "Public Safety": "Public Safety",
+            "Parks": "Parks",
+            "Buildings": "Buildings"
         }
         
         # Estimated response times by urgency
@@ -64,27 +64,26 @@ class SmartRoutingAgent:
         area_ward_name: str
     ) -> Dict[str, str]:
         """
-        Query User Service to find the nodal officer
+        Query SuperUser DB staff_users collection to find the nodal officer
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.user_service_url}/api/officers/nodal",
-                    params={
-                        "department": department,
-                        "area_ward": area_ward_name
-                    },
-                    timeout=10.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        "officer_id": data.get("officer_id", "DEFAULT_OFFICER"),
-                        "officer_name": data.get("name", "Nodal Officer")
-                    }
+            db = get_superuser_db()  # Synchronous call
+            collection = db.staff_users
+            
+            # Query for nodal officer with matching dept and ward
+            officer_doc = await collection.find_one({
+                "role": "NODAL_OFFICER",
+                "metadata.dept": department,
+                "metadata.ward": area_ward_name
+            })
+            
+            if officer_doc:
+                return {
+                    "officer_id": officer_doc["_id"],
+                    "officer_name": officer_doc["full_name"]
+                }
         except Exception as e:
-            print(f"Error finding nodal officer: {e}")
+            print(f"Error finding nodal officer in DB: {e}")
         
         # Fallback to default officer
         return {

@@ -8,7 +8,8 @@ import asyncio
 from services.user_service.src.api.user_routes import router as user_router
 from services.AIFormFilling.src.apis.routes import router as grievance_router
 from services.AIFormFilling.src.db.connection import connect_to_mongo, close_mongo_connection
-# from services.AIAnalysis.apis.routes import router as analysis_router, monitor_grievance_submissions
+from services.AIAnalysis.apis.routes import router as analysis_router, monitor_grievance_submissions
+from services.AIAnalysis.db.connection import connect_to_mongo as connect_analysis_mongo, close_mongo_connection as close_analysis_mongo
 
 # Import SuperUser service components
 from services.superuser_services.config import settings as superuser_settings
@@ -23,14 +24,16 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()  # For grievance service
+    connect_analysis_mongo()  # For analysis service (synchronous)
     await connect_superuser_mongo()  # For SuperUser service
     await create_initial_superadmin()
     await seed_sample_data()
     # Start background worker to monitor grievance submissions
-    # asyncio.create_task(monitor_grievance_submissions())
+    asyncio.create_task(monitor_grievance_submissions())
     yield
     # Shutdown
     await close_mongo_connection()  # For grievance service
+    close_analysis_mongo()  # For analysis service (synchronous)
     await close_superuser_mongo()  # For SuperUser service
 
 app = FastAPI(
@@ -50,7 +53,7 @@ app.add_middleware(
 
 app.include_router(user_router, prefix="/users", tags=["users"])
 app.include_router(grievance_router, prefix="/grievance")
-# app.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
+app.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
 
 # Include SuperUser routers
 app.include_router(auth_router, prefix="/superuser/auth")

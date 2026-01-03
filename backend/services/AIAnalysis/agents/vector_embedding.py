@@ -28,8 +28,10 @@ class VectorEmbeddingAgent:
             query_embeddings=[vector],
             n_results=5,
             where={
-                "area_ward_name": grievance.area_ward_name,
-                "category": grievance.category
+                "$and": [
+                    {"area_ward_name": grievance.area_ward_name},
+                    {"category": grievance.category}
+                ]
             },
             include=["metadatas", "distances"]
         )
