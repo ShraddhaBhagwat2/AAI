@@ -132,4 +132,13 @@ export const officerAPI = {
   getTicketCounts: () => api.get("/resolution/officer/total"),
 };
 
+// Feedback API functions
+export const feedbackAPI = {
+  getConflicts: (skip = 0, limit = 20) =>
+    api.get(`/feedback/conflicts/list?skip=${skip}&limit=${limit}`),
+  getFeedbacks: (skip = 0, limit = 50) =>
+    api.get(`/feedback/list?skip=${skip}&limit=${limit}`),
+  getFeedback: (feedbackId) => api.get(`/feedback/id/${feedbackId}`),
+};
+
 export default api;

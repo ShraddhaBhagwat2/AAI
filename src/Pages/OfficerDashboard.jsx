@@ -18,8 +18,22 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { officerAPI } from "../services/api";
+import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 export default function OfficerDashboard() {
+  const { logout, user } = useAuth() || {};
+  const navigate = useNavigate();
+  const handleLogout = async () => {
+    try {
+      if (typeof logout === "function") await logout();
+    } catch {}
+    try {
+      localStorage.removeItem("authToken");
+    } catch {}
+    navigate("/login");
+  };
+
   // State
   const [tickets, setTickets] = useState([]);
   const [resolvedTickets, setResolvedTickets] = useState([]);
@@ -523,13 +537,24 @@ export default function OfficerDashboard() {
               OFFICER DASHBOARD
             </span>
           </div>
-          <button
-            onClick={fetchDashboard}
-            className="p-2 hover:bg-blue-700 rounded-lg transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchDashboard}
+              className="p-2 hover:bg-blue-700 rounded-lg transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+            </button>
+            {user ? (
+              <button
+                onClick={handleLogout}
+                className="px-3 py-1 border border-red-600 text-red-100 bg-red-600 hover:bg-red-700 rounded transition-colors text-sm"
+                title="Logout"
+              >
+                Logout
+              </button>
+            ) : null}
+          </div>
         </div>
       </nav>
 

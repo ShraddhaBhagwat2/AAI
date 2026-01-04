@@ -1,5 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import {
   ArrowRight,
   CheckCircle2,
@@ -11,6 +13,13 @@ import Navbar from "../components/Navbar";
 import heroIll from "../assets/hero2.svg";
 
 export default function Home() {
+  const navigate = useNavigate();
+  const { user } = useAuth() || {};
+  const handleLodge = () => {
+    if (user) navigate("/citizen");
+    else navigate("/login", { state: { redirectTo: "/citizen" } });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <Navbar />
@@ -31,16 +40,19 @@ export default function Home() {
               responses transparently.
             </p>
             <div className="flex flex-wrap gap-4 pt-4">
-              <Link
-                to="/citizen"
+              <button
+                type="button"
+                onClick={handleLodge}
                 className="bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white px-6 py-3.5 rounded-lg font-semibold shadow-lg hover:shadow-xl flex items-center gap-2 transform hover:-translate-y-0.5 transition-all duration-200"
+                aria-label="Lodge Complaint"
               >
                 Lodge Complaint{" "}
                 <ArrowRight
                   size={18}
                   className="group-hover:translate-x-1 transition-transform"
                 />
-              </Link>
+              </button>
+
               <Link
                 to="/contact"
                 className="bg-white border-2 border-slate-200 hover:border-blue-300 hover:bg-blue-50 px-6 py-3 rounded-lg font-semibold text-slate-800 hover:text-blue-600 transition-all duration-200"
@@ -179,12 +191,12 @@ export default function Home() {
                 Login, lodge complaints via voice/photo, track status, provide
                 feedback.
               </p>
-              <Link
-                to="/citizen"
+              <button
+                onClick={handleLodge}
                 className="inline-block mt-4 text-sm font-semibold text-orange-600"
               >
                 Open Portal →
-              </Link>
+              </button>
             </div>
 
             <div className="p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
@@ -241,9 +253,12 @@ export default function Home() {
                 </a>
               </li>
               <li>
-                <a href="#" className="hover:text-white">
+                <button
+                  onClick={handleLodge}
+                  className="hover:text-white text-left"
+                >
                   Lodge Grievance
-                </a>
+                </button>
               </li>
               <li>
                 <a href="#" className="hover:text-white">

@@ -1,33 +1,42 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Shield, User, Mail, Phone, MapPin, Globe, ArrowRight, AlertCircle } from 'lucide-react';
-import { signupUser } from '../utils/api';
+import React, { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import {
+  Shield,
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Globe,
+  ArrowRight,
+  AlertCircle,
+} from "lucide-react";
+import { signupUser } from "../utils/api";
 
 export default function SignupPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [formData, setFormData] = useState({
-    fullName: '',
-    email: '',
-    mobile: '',
-    password: '',
-    address: '',
-    language: 'English'
+    fullName: "",
+    email: "",
+    mobile: "",
+    password: "",
+    address: "",
+    language: "English",
   });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
   };
 
   const handleSignup = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
       await signupUser({
@@ -36,13 +45,13 @@ export default function SignupPage() {
         mobile_number: formData.mobile,
         password: formData.password,
         residential_address: formData.address,
-        language_preference: formData.language
+        language_preference: formData.language,
       });
 
       // Success - redirect to login
-      navigate('/login');
+      navigate("/login");
     } catch (err) {
-      setError(err.message || 'Signup failed. Please try again.');
+      setError(err.message || "Signup failed. Please try again.");
       setLoading(false);
     }
   };
@@ -50,30 +59,32 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden">
-        
         {/* Header */}
         <div className="bg-blue-600 p-6 text-center">
           <div className="mx-auto bg-white w-14 h-14 rounded-full flex items-center justify-center mb-3">
             <Shield className="text-blue-600" size={28} />
           </div>
           <h1 className="text-2xl font-bold text-white">Create Your Account</h1>
-          <p className="text-blue-100 text-sm mt-1">Join CivicConnect - Unified Grievance Portal</p>
+          <p className="text-blue-100 text-sm mt-1">
+            Join CivicConnect - Unified Grievance Portal
+          </p>
         </div>
 
         {/* Signup Form */}
         <div className="p-8">
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-              <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+              <AlertCircle
+                className="text-red-500 flex-shrink-0 mt-0.5"
+                size={20}
+              />
               <div className="text-sm text-red-700">{error}</div>
             </div>
           )}
 
           <form onSubmit={handleSignup} className="space-y-5">
-            
             {/* 2-Column Grid Layout for Larger Screens */}
             <div className="grid md:grid-cols-2 gap-5">
-              
               {/* Full Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
@@ -83,7 +94,7 @@ export default function SignupPage() {
                   <div className="absolute left-3 top-3 text-slate-400">
                     <User size={18} />
                   </div>
-                  <input 
+                  <input
                     type="text"
                     name="fullName"
                     value={formData.fullName}
@@ -104,7 +115,7 @@ export default function SignupPage() {
                   <div className="absolute left-3 top-3 text-slate-400">
                     <Mail size={18} />
                   </div>
-                  <input 
+                  <input
                     type="email"
                     name="email"
                     value={formData.email}
@@ -125,7 +136,7 @@ export default function SignupPage() {
                   <div className="absolute left-3 top-3 text-slate-400">
                     <Phone size={18} />
                   </div>
-                  <input 
+                  <input
                     type="tel"
                     name="mobile"
                     value={formData.mobile}
@@ -146,7 +157,7 @@ export default function SignupPage() {
                   <div className="absolute left-3 top-3 text-slate-400">
                     <Shield size={18} />
                   </div>
-                  <input 
+                  <input
                     type="password"
                     name="password"
                     value={formData.password}
@@ -158,7 +169,6 @@ export default function SignupPage() {
                   />
                 </div>
               </div>
-
             </div>
 
             {/* Residential Address - Full Width */}
@@ -170,7 +180,7 @@ export default function SignupPage() {
                 <div className="absolute left-3 top-3 text-slate-400">
                   <MapPin size={18} />
                 </div>
-                <textarea 
+                <textarea
                   name="address"
                   value={formData.address}
                   onChange={handleChange}
@@ -191,7 +201,7 @@ export default function SignupPage() {
                 <div className="absolute left-3 top-3 text-slate-400">
                   <Globe size={18} />
                 </div>
-                <select 
+                <select
                   name="language"
                   value={formData.language}
                   onChange={handleChange}
@@ -213,7 +223,7 @@ export default function SignupPage() {
             </div>
 
             {/* Submit Button */}
-            <button 
+            <button
               type="submit"
               disabled={loading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:cursor-not-allowed"
@@ -233,8 +243,11 @@ export default function SignupPage() {
 
           {/* Login Link */}
           <div className="mt-6 text-center text-sm text-slate-600">
-            Already have an account?{' '}
-            <Link to="/login" className="text-blue-600 font-bold hover:text-blue-700 hover:underline">
+            Already have an account?{" "}
+            <Link
+              to="/login"
+              className="text-blue-600 font-bold hover:text-blue-700 hover:underline"
+            >
               Login here
             </Link>
           </div>

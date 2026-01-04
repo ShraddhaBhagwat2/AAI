@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import Navbar from "../components/Navbar";
 import CitizenNav from "../components/CitizenNav";
 import api from "../services/api";
@@ -8,6 +9,18 @@ export default function CitizenPrevious() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingTarget, setRatingTarget] = useState(null);
+  const [ratings, setRatings] = useState({ overall: 5, speed: 5, quality: 5 });
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState(null);
+  const [evidencePreview, setEvidencePreview] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [submitSuccess, setSubmitSuccess] = useState(null);
+  const [pendingForms, setPendingForms] = useState(new Set());
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Helper to robustly resolve an identifier for a grievance item
   const resolveId = (it) => {
@@ -105,6 +118,109 @@ export default function CitizenPrevious() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchPending = async () => {
+      try {
+        const res = await api.get("/feedback/pending");
+        const list = Array.isArray(res.data) ? res.data : [];
+        if (!mounted) return;
+        setPendingForms(new Set(list.map((d) => d.form_id)));
+      } catch {
+        // ignore failure - leave set empty
+      } finally {
+        if (mounted) setPendingLoaded(true);
+      }
+    };
+    fetchPending();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const openRatingModal = (item) => {
+    const id = resolveId(item);
+    if (!id) return;
+    // If pending loaded and this form is not pending => already rated
+    if (pendingLoaded && !pendingForms.has(id)) {
+      // show a quick toast / skip opening modal - optional
+      return;
+    }
+    setRatingTarget(item);
+    setRatings({ overall: 5, speed: 5, quality: 5 });
+    setFeedbackComment("");
+    setEvidenceFile(null);
+    setEvidencePreview(null);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    setShowRatingModal(true);
+  };
+
+  const closeRatingModal = () => {
+    setShowRatingModal(false);
+    if (evidencePreview) {
+      URL.revokeObjectURL(evidencePreview);
+      setEvidencePreview(null);
+    }
+  };
+
+  const handleEvidenceChange = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setEvidenceFile(f);
+    const url = URL.createObjectURL(f);
+    setEvidencePreview(url);
+  };
+
+  const submitRating = async () => {
+    if (!ratingTarget) return;
+    const formId = resolveId(ratingTarget);
+    if (!formId) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const payload = {
+        form_id: formId,
+        ratings: { ...ratings },
+        is_resolved_by_user: true,
+        user_comment: feedbackComment || undefined,
+      };
+      const fd = new FormData();
+      fd.append("feedback_data", JSON.stringify(payload));
+      if (evidenceFile) fd.append("evidence", evidenceFile);
+
+      const res = await api.post("/feedback/submit", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      setSubmitSuccess("Feedback submitted successfully");
+      // Remove from pending set (if present)
+      setPendingForms((prev) => {
+        const s = new Set(prev);
+        s.delete(formId);
+        return s;
+      });
+
+      // Update local item flag so UI can reflect rating done
+      setItems((prev) =>
+        prev.map((p) =>
+          resolveId(p) === formId ? { ...p, _rated_by_user: true } : p
+        )
+      );
+
+      closeRatingModal();
+    } catch (err) {
+      setSubmitError(
+        err?.response?.data?.detail ||
+          err?.response?.data ||
+          err.message ||
+          "Failed to submit"
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-slate-100">
@@ -374,24 +490,22 @@ export default function CitizenPrevious() {
                         <div className="text-xs text-slate-500 mb-2 uppercase tracking-wide font-semibold">
                           Description
                         </div>
-                        <div className="text-sm text-slate-800 leading-relaxed">
-                          {(
-                            t.full_description ||
-                            t.original_text ||
-                            "No description available"
-                          ).slice(0, 500)}
-                          {(t.full_description || t.original_text || "")
-                            .length > 500
-                            ? "..."
-                            : ""}
+                        <div className="text-sm text-slate-800 leading-relaxed prose max-w-none">
+                          <ReactMarkdown>
+                            {t.full_description ||
+                              t.original_text ||
+                              "No description available"}
+                          </ReactMarkdown>
                         </div>
                         {t.document_insights && (
                           <div className="mt-4">
                             <div className="text-xs text-slate-500 mb-2 uppercase tracking-wide font-semibold">
                               Document Insights
                             </div>
-                            <div className="text-sm text-slate-800 leading-relaxed">
-                              {t.document_insights}
+                            <div className="text-sm text-slate-800 leading-relaxed prose max-w-none">
+                              <ReactMarkdown>
+                                {t.document_insights}
+                              </ReactMarkdown>
                             </div>
                           </div>
                         )}
@@ -400,8 +514,8 @@ export default function CitizenPrevious() {
                             <div className="text-xs text-slate-500 mb-2 uppercase tracking-wide font-semibold">
                               Message
                             </div>
-                            <div className="text-sm text-slate-800 leading-relaxed">
-                              {t.message}
+                            <div className="text-sm text-slate-800 leading-relaxed prose max-w-none">
+                              <ReactMarkdown>{t.message}</ReactMarkdown>
                             </div>
                           </div>
                         )}
@@ -427,9 +541,26 @@ export default function CitizenPrevious() {
                         )}
 
                       <div className="flex gap-3 mt-4">
-                        <button className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200">
-                          ⭐ Rate Experience
-                        </button>
+                        {/** Only allow rating when pending (once pending loaded). If not pending show disabled "Rated" */}
+                        {(!pendingLoaded || pendingForms.has(itemId)) &&
+                        !t._rated_by_user ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openRatingModal(t);
+                            }}
+                            className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+                          >
+                            ⭐ Rate Experience
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="flex-1 px-4 py-2.5 bg-white border-2 border-slate-200 text-slate-400 rounded-xl font-semibold cursor-not-allowed"
+                          >
+                            ⭐ Rated
+                          </button>
+                        )}
                         <button className="flex-1 px-4 py-2.5 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all duration-200">
                           📥 Download Report
                         </button>
@@ -442,6 +573,123 @@ export default function CitizenPrevious() {
           })}
         </div>
       </div>
+
+      {/* Rating Modal */}
+      {showRatingModal && ratingTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-6 overflow-auto">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold">Rate Experience</h3>
+                <div className="text-sm text-slate-500">
+                  {ratingTarget.title ||
+                    ratingTarget.subject ||
+                    resolveId(ratingTarget)}
+                </div>
+              </div>
+              <button onClick={closeRatingModal} className="text-slate-500">
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* simple star selector for three metrics */}
+              {["overall", "speed", "quality"].map((k) => (
+                <div key={k}>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-1">
+                    {k === "overall"
+                      ? "Overall"
+                      : k.charAt(0).toUpperCase() + k.slice(1)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setRatings((r) => ({ ...r, [k]: n }))}
+                        className={`text-2xl ${
+                          ratings[k] >= n ? "text-yellow-500" : "text-slate-300"
+                        }`}
+                        aria-label={`${k} ${n} stars`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                    <div className="text-sm text-slate-500 ml-2">
+                      {ratings[k]} / 5
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-1">
+                  Comment
+                </div>
+                <textarea
+                  value={feedbackComment}
+                  onChange={(e) => setFeedbackComment(e.target.value)}
+                  className="w-full border rounded-lg p-3"
+                  rows={3}
+                  placeholder="Optional comment about your experience"
+                />
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-1">
+                  Evidence (optional)
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEvidenceChange}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() =>
+                      fileInputRef.current && fileInputRef.current.click()
+                    }
+                    className="px-4 py-2 rounded-lg bg-slate-100"
+                  >
+                    Upload Image
+                  </button>
+                  {evidencePreview && (
+                    <img
+                      src={evidencePreview}
+                      alt="preview"
+                      className="w-24 h-16 object-cover rounded-md border"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {submitError && (
+                <div className="text-sm text-red-600">{submitError}</div>
+              )}
+              {submitSuccess && (
+                <div className="text-sm text-green-600">{submitSuccess}</div>
+              )}
+
+              <div className="flex gap-2 justify-end mt-2">
+                <button
+                  onClick={closeRatingModal}
+                  className="px-4 py-2 rounded-lg border"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitRating}
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold disabled:opacity-50"
+                >
+                  {submitting ? "Submitting..." : "Submit Feedback"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

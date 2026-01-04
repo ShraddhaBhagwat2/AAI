@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import ReactDOM from "react-dom";
 import {
   ShieldAlert,
   Users,
@@ -22,7 +23,10 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import { adminAPI } from "../services/api";
+import { adminAPI, feedbackAPI } from "../services/api";
+import api from "../services/api"; // add this import
+import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 // Constants
 const DEPARTMENTS = [
@@ -36,6 +40,19 @@ const DEPARTMENTS = [
 const ROLES = ["SUPER_ADMIN", "DEPT_ADMIN", "NODAL_OFFICER"];
 
 export default function AdminDashboard() {
+  const { logout, user } = useAuth() || {};
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      if (typeof logout === "function") await logout();
+    } catch {}
+    try {
+      localStorage.removeItem("authToken");
+    } catch {}
+    navigate("/login");
+  };
+
   // State for users list
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -54,6 +71,8 @@ export default function AdminDashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showJurisdictionModal, setShowJurisdictionModal] = useState(false);
+  const [showConflictsModal, setShowConflictsModal] = useState(false);
+  const [showFeedbacksModal, setShowFeedbacksModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
 
   // Create user form
@@ -80,6 +99,21 @@ export default function AdminDashboard() {
   const [jurisdictionLoading, setJurisdictionLoading] = useState(false);
   const [jurisdictionError, setJurisdictionError] = useState("");
 
+  // Conflicts state
+  const [conflicts, setConflicts] = useState([]);
+  const [conflictsLoading, setConflictsLoading] = useState(false);
+  const [conflictsTotal, setConflictsTotal] = useState(0);
+
+  // Feedbacks state
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [feedbacksLoading, setFeedbacksLoading] = useState(false);
+  const [feedbacksTotal, setFeedbacksTotal] = useState(0);
+
+  // Feedback detail modal state
+  const [feedbackDetail, setFeedbackDetail] = useState(null);
+  const [feedbackDetailLoading, setFeedbackDetailLoading] = useState(false);
+  const [showFeedbackDetailModal, setShowFeedbackDetailModal] = useState(false);
+
   // Fetch users function
   const fetchUsers = async () => {
     setLoading(true);
@@ -96,6 +130,34 @@ export default function AdminDashboard() {
       setUsers([]);
     }
     setLoading(false);
+  };
+
+  // Fetch conflicts function
+  const fetchConflicts = async (skip = 0, limit = 20) => {
+    setConflictsLoading(true);
+    try {
+      const res = await feedbackAPI.getConflicts(skip, limit);
+      setConflicts(res.data.conflicts || []);
+      setConflictsTotal(res.data.total || 0);
+    } catch (err) {
+      console.error("Failed to load conflicts", err);
+      setConflicts([]);
+    }
+    setConflictsLoading(false);
+  };
+
+  // Fetch feedbacks function
+  const fetchFeedbacks = async (skip = 0, limit = 50) => {
+    setFeedbacksLoading(true);
+    try {
+      const res = await feedbackAPI.getFeedbacks(skip, limit);
+      setFeedbacks(res.data.feedbacks || []);
+      setFeedbacksTotal(res.data.total || 0);
+    } catch (err) {
+      console.error("Failed to load feedbacks", err);
+      setFeedbacks([]);
+    }
+    setFeedbacksLoading(false);
   };
 
   // Fetch users on mount and when filters/page change
@@ -172,6 +234,32 @@ export default function AdminDashboard() {
     setJurisdictionLoading(false);
   };
 
+  const buildImageUrl = (p) => {
+    if (!p) return null;
+    if (typeof p !== "string") return null;
+    if (p.startsWith("http")) return p;
+    const cleaned = p.replace(/^\.\/?/, "").replace(/\\/g, "/");
+    return `${api.defaults.baseURL.replace(/\/$/, "")}/${cleaned}`;
+  };
+
+  const viewFeedbackDetail = async (feedbackId) => {
+    if (!feedbackId) return;
+    setFeedbackDetailLoading(true);
+    setFeedbackDetail(null);
+    setShowFeedbackDetailModal(true);
+    try {
+      const res = await feedbackAPI.getFeedback(feedbackId);
+      setFeedbackDetail(res.data || res);
+    } catch (err) {
+      console.error("Failed to fetch feedback detail", err);
+      setFeedbackDetail({
+        error: err?.response?.data?.detail || "Failed to load feedback",
+      });
+    } finally {
+      setFeedbackDetailLoading(false);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize)) || 1;
 
   return (
@@ -188,9 +276,28 @@ export default function AdminDashboard() {
             </span>
           </div>
           <div className="flex gap-4 text-sm items-center">
-            <span className="text-slate-400">
-              Logged in as: <strong className="text-white">System Admin</strong>
-            </span>
+            <button
+              onClick={() => {
+                fetchConflicts();
+                setShowConflictsModal(true);
+              }}
+              className="px-3 py-2 bg-yellow-500 hover:bg-yellow-600 rounded text-white font-semibold"
+              title="View Conflicts"
+            >
+              View Conflicts
+            </button>
+
+            <button
+              onClick={() => {
+                fetchFeedbacks();
+                setShowFeedbacksModal(true);
+              }}
+              className="px-3 py-2 bg-slate-100 hover:bg-white rounded text-slate-800 font-semibold"
+              title="All Feedbacks"
+            >
+              All Feedbacks
+            </button>
+
             <button
               onClick={fetchUsers}
               className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
@@ -198,6 +305,15 @@ export default function AdminDashboard() {
             >
               <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
             </button>
+            {user ? (
+              <button
+                onClick={handleLogout}
+                className="px-3 py-1 border border-red-600 text-red-600 rounded hover:bg-red-50 transition-colors"
+                title="Logout"
+              >
+                Logout
+              </button>
+            ) : null}
           </div>
         </div>
       </nav>
@@ -954,6 +1070,251 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* CONFLICTS MODAL */}
+      {showConflictsModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl p-4 overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">
+                Conflicts ({conflictsTotal})
+              </h3>
+              <button
+                onClick={() => setShowConflictsModal(false)}
+                className="text-slate-600"
+              >
+                Close
+              </button>
+            </div>
+
+            {conflictsLoading ? (
+              <div className="p-6 text-center">Loading conflicts...</div>
+            ) : conflicts.length === 0 ? (
+              <div className="p-6 text-center text-slate-500">
+                No conflicts found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="text-xs text-slate-500 uppercase">
+                    <tr>
+                      <th className="p-2">Feedback ID</th>
+                      <th className="p-2">Form ID</th>
+                      <th className="p-2">Citizen</th>
+                      <th className="p-2">Officer</th>
+                      <th className="p-2">Escalated</th>
+                      <th className="p-2">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conflicts.map((c) => (
+                      <tr key={c.feedback_id || c._id} className="border-t">
+                        <td className="p-2 text-sm">{c.feedback_id}</td>
+                        <td className="p-2 text-sm">{c.form_id}</td>
+                        <td className="p-2 text-sm">{c.citizen_id}</td>
+                        <td className="p-2 text-sm">{c.officer_id}</td>
+                        <td className="p-2 text-sm">
+                          {c.escalated ? "Yes" : "No"}
+                        </td>
+                        <td className="p-2 text-sm">
+                          {c.created_at
+                            ? new Date(c.created_at).toLocaleString()
+                            : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FEEDBACKS MODAL */}
+      {showFeedbacksModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-4 overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">
+                All Feedbacks ({feedbacksTotal})
+              </h3>
+              <button
+                onClick={() => setShowFeedbacksModal(false)}
+                className="text-slate-600"
+              >
+                Close
+              </button>
+            </div>
+
+            {feedbacksLoading ? (
+              <div className="p-6 text-center">Loading feedbacks...</div>
+            ) : feedbacks.length === 0 ? (
+              <div className="p-6 text-center text-slate-500">
+                No feedbacks available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="text-xs text-slate-500 uppercase">
+                    <tr>
+                      <th className="p-2">Feedback ID</th>
+                      <th className="p-2">Form ID</th>
+                      <th className="p-2">Citizen</th>
+                      <th className="p-2">Officer</th>
+                      <th className="p-2">Conflict</th>
+                      <th className="p-2">Escalated</th>
+                      <th className="p-2">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feedbacks.map((f) => (
+                      <tr key={f.feedback_id || f._id} className="border-t">
+                        <td className="p-2 text-sm">{f.feedback_id}</td>
+                        <td className="p-2 text-sm">{f.form_id}</td>
+                        <td className="p-2 text-sm">{f.citizen_id}</td>
+                        <td className="p-2 text-sm">{f.officer_id}</td>
+                        <td className="p-2 text-sm">
+                          {f.conflict_detected ? "Yes" : "No"}
+                        </td>
+                        <td className="p-2 text-sm">
+                          {f.escalated ? "Yes" : "No"}
+                        </td>
+                        <td className="p-2 text-sm">
+                          {f.created_at
+                            ? new Date(f.created_at).toLocaleString()
+                            : "-"}
+                        </td>
+                        <td className="p-2 text-sm">
+                          <button
+                            onClick={() =>
+                              viewFeedbackDetail(f.feedback_id || f._id)
+                            }
+                            className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FEEDBACK DETAIL MODAL (portal to body so it always appears on top) */}
+      {showFeedbackDetailModal &&
+        ReactDOM.createPortal(
+          <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-6 overflow-auto z-[10000]">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-bold">Feedback Details</h3>
+                  <div className="text-sm text-slate-500">
+                    {feedbackDetail?.feedback_id || "Loading..."}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowFeedbackDetailModal(false);
+                    setFeedbackDetail(null);
+                  }}
+                  className="text-slate-600"
+                >
+                  Close
+                </button>
+              </div>
+
+              {feedbackDetailLoading ? (
+                <div className="p-6 text-center">Loading...</div>
+              ) : feedbackDetail?.error ? (
+                <div className="p-4 text-red-600">{feedbackDetail.error}</div>
+              ) : feedbackDetail ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div className="text-sm">Overall:</div>
+                    <div className="font-semibold">
+                      {feedbackDetail.ratings?.overall || "-"}
+                      /5
+                    </div>
+                    <div className="ml-4 text-sm">Speed:</div>
+                    <div className="font-semibold">
+                      {feedbackDetail.ratings?.speed || "-"}
+                      /5
+                    </div>
+                    <div className="ml-4 text-sm">Quality:</div>
+                    <div className="font-semibold">
+                      {feedbackDetail.ratings?.quality || "-"}
+                      /5
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 uppercase">
+                      Comment
+                    </div>
+                    <div className="text-slate-800">
+                      {feedbackDetail.user_comment || "—"}
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase">
+                        Conflict
+                      </div>
+                      <div className="font-semibold">
+                        {feedbackDetail.conflict_detected ? "Yes" : "No"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase">
+                        Escalated
+                      </div>
+                      <div className="font-semibold">
+                        {feedbackDetail.escalated ? "Yes" : "No"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase">
+                        Created
+                      </div>
+                      <div className="font-semibold">
+                        {feedbackDetail.created_at
+                          ? new Date(feedbackDetail.created_at).toLocaleString()
+                          : "-"}
+                      </div>
+                    </div>
+                  </div>
+                  {feedbackDetail.citizen_evidence_path && (
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase mb-2">
+                        Evidence
+                      </div>
+                      <a
+                        href={buildImageUrl(
+                          feedbackDetail.citizen_evidence_path
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <img
+                          src={buildImageUrl(
+                            feedbackDetail.citizen_evidence_path
+                          )}
+                          alt="evidence"
+                          className="w-48 h-32 object-cover rounded-md border"
+                        />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

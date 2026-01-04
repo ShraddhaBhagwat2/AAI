@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     await connect_superuser_mongo()  # For SuperUser service
     await init_officer_resolution_service()  # For OfficerResolutionService
     await create_initial_superadmin()
-    await seed_sample_data()
+
     # Start background worker to monitor grievance submissions
     asyncio.create_task(monitor_grievance_submissions())
     yield

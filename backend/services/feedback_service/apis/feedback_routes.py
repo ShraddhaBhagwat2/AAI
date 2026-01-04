@@ -4,6 +4,9 @@ import json
 import os
 import uuid
 from datetime import datetime
+import logging
+from bson import ObjectId, Decimal128
+import base64
 
 from ..schemas.feedback_schema import (
     FeedbackSubmissionSchema, 
@@ -21,6 +24,37 @@ router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 UPLOAD_DIR = "uploads/feedback"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+logger = logging.getLogger(__name__)
+
+def _sanitize_obj(obj):
+    """Recursive sanitizer: ObjectId -> str, datetime -> isoformat, convert dicts/lists.
+    Be defensive and always return a JSON-safe value (fallback to str(obj))."""
+    try:
+        if obj is None:
+            return None
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, Decimal128):
+            return str(obj.to_decimal())
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, bytes):
+            return base64.b64encode(obj).decode("ascii")
+        if isinstance(obj, (list, tuple, set)):
+            return [_sanitize_obj(v) for v in obj]
+        if isinstance(obj, dict):
+            return {k: _sanitize_obj(v) for k, v in obj.items()}
+        # Fallback for any other types (e.g., DBRef, custom types)
+        return str(obj)
+    except Exception:
+        # Last-resort fallback to avoid raising during response building
+        try:
+            return str(obj)
+        except Exception:
+            return "<unserializable>"
 
 @router.get("/pending", response_model=List[PendingFeedbackSchema])
 async def get_pending_feedbacks(current_user = Depends(get_current_user)):
@@ -50,6 +84,13 @@ async def submit_feedback(
             raise HTTPException(status_code=404, detail="Grievance not found")
         
         citizen_id = current_user  # Assuming current_user is the user ID string
+
+        # Extract officer id safely from several possible field names
+        officer_id = (
+            grievance.get("officer_id") or grievance.get("officerId") or
+            grievance.get("assigned_officer_id") or grievance.get("assigned_officer") or
+            grievance.get("officer") or None
+        )
         
         # Handle evidence upload
         evidence_path = None
@@ -65,7 +106,7 @@ async def submit_feedback(
         feedback_data_dict = {
             "form_id": feedback_schema.form_id,
             "citizen_id": citizen_id,
-            "officer_id": grievance["officer_id"],
+            "officer_id": officer_id,
             "ratings": feedback_schema.ratings.dict(),
             "is_resolved_by_user": feedback_schema.is_resolved_by_user,
             "user_comment": feedback_schema.user_comment,
@@ -101,7 +142,10 @@ async def submit_feedback(
         
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid feedback data format")
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("Error submitting feedback")
         raise HTTPException(status_code=500, detail=f"Error submitting feedback: {str(e)}")
 
 @router.get("/stats/{officer_id}", response_model=OfficerStatsSchema)
@@ -119,9 +163,9 @@ async def get_officer_stats(officer_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching officer stats: {str(e)}")
 
-@router.get("/{feedback_id}", response_model=FeedbackResponseSchema)
+@router.get("/id/{feedback_id}", response_model=FeedbackResponseSchema)
 async def get_feedback_details(feedback_id: str):
-    """Get detailed feedback information"""
+    """Get detailed feedback information (use /feedback/id/{feedback_id})"""
     try:
         feedback = await feedback_db.get_feedback_by_id(feedback_id)
         if not feedback:
@@ -132,25 +176,60 @@ async def get_feedback_details(feedback_id: str):
         
         return FeedbackResponseSchema(**feedback)
         
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("Error fetching feedback details")
         raise HTTPException(status_code=500, detail=f"Error fetching feedback: {str(e)}")
 
 @router.get("/conflicts/list")
 async def get_conflicts(skip: int = 0, limit: int = 20):
     """Get list of all conflicts for admin review"""
     try:
-        # This would be used by SuperAdmin to review conflicts
         pipeline = [
             {"$match": {"conflict_detected": True}},
             {"$sort": {"created_at": -1}},
             {"$skip": skip},
             {"$limit": limit}
         ]
-        
+
         cursor = feedback_db.feedback_collection.aggregate(pipeline)
         conflicts = await cursor.to_list(length=limit)
-        
-        return {"conflicts": conflicts, "total": len(conflicts)}
-        
+
+        total = await feedback_db.feedback_collection.count_documents({"conflict_detected": True})
+
+        # sanitize documents defensively and log any failures
+        sanitized = []
+        for i, c in enumerate(conflicts):
+            try:
+                sanitized.append(_sanitize_obj(c))
+            except Exception as ex:
+                logger.exception("Sanitization failed for conflict index %s (id=%s)", i, c.get("feedback_id", c.get("_id")))
+                sanitized.append({"_raw": str(c)})
+
+        return {"conflicts": sanitized, "total": total}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching conflicts: {str(e)}")
+        logger.exception("Error fetching conflicts")
+        raise HTTPException(status_code=500, detail=f"Internal server error (see server logs): {str(e)}")
+
+@router.get("/list")
+async def list_feedbacks(skip: int = 0, limit: int = 50):
+    """Paginated list of all feedbacks (admin use)"""
+    try:
+        cursor = feedback_db.feedback_collection.find({}).sort("created_at", -1).skip(skip).limit(limit)
+        items = await cursor.to_list(length=limit)
+        total = await feedback_db.feedback_collection.count_documents({})
+
+        sanitized_items = []
+        for i, it in enumerate(items):
+            try:
+                sanitized_items.append(_sanitize_obj(it))
+            except Exception as ex:
+                logger.exception("Sanitization failed for feedback index %s (id=%s)", i, it.get("feedback_id", it.get("_id")))
+                sanitized_items.append({"_raw": str(it)})
+
+        return {"feedbacks": sanitized_items, "total": total}
+    except Exception as e:
+        logger.exception("Error listing feedbacks")
+        raise HTTPException(status_code=500, detail=f"Internal server error (see server logs): {str(e)}")
