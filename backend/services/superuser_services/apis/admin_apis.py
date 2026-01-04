@@ -48,7 +48,7 @@ async def create_user(
         # Generate temporary password
         temp_password = auth_utils.generate_temp_password()
         hashed_password = auth_utils.hash_password(temp_password)
-        
+        print("temp_password:", temp_password)
         # Create staff user object
         staff_id = f"STF_{uuid.uuid4().hex[:6].upper()}"
         

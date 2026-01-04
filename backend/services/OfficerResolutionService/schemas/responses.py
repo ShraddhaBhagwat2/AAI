@@ -50,3 +50,9 @@ class ResolutionResponse(BaseModel):
     message: str
     resolved_at: datetime
     completion_time_hours: float
+
+class TicketCountsResponse(BaseModel):
+    assigned: int
+    in_progress: int
+    completed: int  # Removed "resolved" as it's same as "completed"
+    clarifications: int

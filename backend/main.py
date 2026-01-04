@@ -24,6 +24,9 @@ from services.OfficerResolutionService import resolution_router, init_officer_re
 # Import ClarificationService router
 from services.clarification_service.apis.routes import router as clarification_router
 
+# Import FeedbackService router
+from services.feedback_service.apis.feedback_routes import router as feedback_router
+
 load_dotenv()
 
 @asynccontextmanager
@@ -72,6 +75,9 @@ app.include_router(resolution_router)
 
 # Include ClarificationService router
 app.include_router(clarification_router, prefix="/clarifications", tags=["clarifications"])
+
+# Include FeedbackService router
+app.include_router(feedback_router)
 
 if __name__ == "__main__":
     import uvicorn

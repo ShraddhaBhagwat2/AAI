@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from typing import List, Optional
 from ..services.officer_service import OfficerService
 from ..schemas.requests import UpdateStatusRequest, ClarificationRequest, ResolveTicketRequest
-from ..schemas.responses import DashboardView, StatusUpdateResponse, ClarificationResponse, ResolutionResponse, ClarificationsListResponse
+from ..schemas.responses import DashboardView, StatusUpdateResponse, ClarificationResponse, ResolutionResponse, ClarificationsListResponse, TicketCountsResponse
 from ..utils.file_handler import file_handler
 from ...superuser_services.utils.auth import get_current_user, require_role
 
@@ -41,7 +41,17 @@ async def update_ticket_status(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
+@router.get("/resolved", response_model=List[DashboardView])
+async def get_resolved_tickets(current_officer: dict = Depends(get_current_officer)):
+    """Get all resolved tickets for the officer"""
+    officer_service = OfficerService()  # Instantiate here
+    try:
+        result = await officer_service.get_resolved_tickets(current_officer["sub"])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @router.post("/request-clarification", response_model=ClarificationResponse)
 async def request_clarification(
     request: ClarificationRequest,
@@ -126,6 +136,18 @@ async def get_clarifications(current_officer: dict = Depends(get_current_officer
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/total", response_model=TicketCountsResponse)
+async def get_ticket_counts(current_officer: dict = Depends(get_current_officer)):
+    """Get total counts of tickets by status for the officer"""
+    officer_service = OfficerService()  # Instantiate here
+    try:
+        result = await officer_service.get_ticket_counts(current_officer["sub"])
+        return TicketCountsResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @router.get("/health")
 async def health_check():

@@ -308,6 +308,71 @@ class OfficerService:
             clarifications.append(clarification)
         return ClarificationsListResponse(clarifications=clarifications)
 
+    async def get_resolved_tickets(self, officer_id: str) -> List[DashboardView]:
+        """Get all resolved tickets for an officer"""
+        cursor = self.resolutions_collection.find({
+            "officer_id": officer_id,
+            "status": "resolved"
+        })
+        
+        resolved_items = []
+        async for record in cursor:
+            # Map resolution record to ticket overview
+            ticket = TicketOverview(
+                grievance_id=record["grievance_id"],
+                status=TicketStatus.RESOLVED,
+                priority_level=record["priority_level"],
+                priority_reasoning=record["priority_reasoning"],
+                cluster_info=record.get("cluster_info", {}),
+                assigned_at=record["assigned_at"],
+                started_at=record.get("started_at"),
+                resolved_at=record.get("resolved_at"),
+                original_documents=record.get("original_documents", [])
+            )
+            
+            # Format urgency banner
+            urgency_banner = f"{ticket.priority_level.upper()}"
+            if ticket.priority_level == "critical":
+                urgency_banner = f"🔴 {urgency_banner}"
+            elif ticket.priority_level == "high":
+                urgency_banner = f"🟡 {urgency_banner}"
+            
+            # Format context panel
+            context_panel = ticket.priority_reasoning
+            
+            # Format cluster summary
+            cluster_summary = "Resolved issue"
+            
+            dashboard_view = DashboardView(
+                ticket=ticket,
+                urgency_banner=urgency_banner,
+                context_panel=context_panel,
+                cluster_summary=cluster_summary,
+                media_gallery=record.get("resolution_photos", [])
+            )
+            resolved_items.append(dashboard_view)
+        
+        return resolved_items
+
+    async def get_ticket_counts(self, officer_id: str) -> Dict[str, int]:
+        """Get counts of tickets by status for the officer"""
+        pipeline = [
+            {"$match": {"assigned_officer_id": officer_id}},
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+        ]
+        cursor = self.analysis_collection.aggregate(pipeline)
+        counts = {"assigned": 0, "in_progress": 0, "completed": 0}  # Removed "resolved" as it's same as "completed"
+        async for doc in cursor:
+            status = doc["_id"]
+            if status in counts:
+                counts[status] = doc["count"]
+        
+        # Add clarifications count
+        clarifications_count = await self.clarifications_collection.count_documents({"officer_id": officer_id})
+        counts["clarifications"] = clarifications_count
+        
+        return counts
+
     async def _notify_citizen_status_update(self, grievance_id: str, status: TicketStatus, officer_name: str):
         """Send status update notification to citizen"""
         # TODO: Integrate with notification service or bot
