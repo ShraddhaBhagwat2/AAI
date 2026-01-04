@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional, List
 import os
 import shutil
+import json
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 
@@ -22,6 +23,8 @@ class InitialSubmissionRequest(BaseModel):
 
 class ClarificationRequest(BaseModel):
     session_id: str
+    user_response: Optional[str] = None
+    answers: Optional[dict] = None
 
 class FormSubmissionRequest(BaseModel):
     session_id: str
@@ -131,7 +134,7 @@ async def start_grievance_session(
     )
 
 @router.post("/clarify", response_model=SessionResponse)
-async def provide_clarification(request: ClarificationRequest, user_response: str, user_id: str = Depends(get_current_user)):
+async def provide_clarification(request: ClarificationRequest, user_id: str = Depends(get_current_user)):
     """
     Provide additional information to clarify missing fields.
     The agent updates the form based on the user's response.
@@ -146,6 +149,18 @@ async def provide_clarification(request: ClarificationRequest, user_response: st
     # Verify session belongs to user
     if session.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Build a string user_response for the agent:
+    if request.user_response:
+        user_response = request.user_response
+        convo_content = request.user_response
+    elif request.answers:
+        # prefer structured answers; send JSON string to agent
+        user_response = json.dumps(request.answers)
+        convo_content = request.answers
+    else:
+        user_response = ""
+        convo_content = ""
     
     # Process clarification with agent
     clarification_result = await agent.process_clarification(
@@ -176,7 +191,7 @@ async def provide_clarification(request: ClarificationRequest, user_response: st
     conversation_history = session.get("conversation_history", [])
     conversation_history.append({
         "role": "user",
-        "content": user_response,
+        "content": convo_content,
         "timestamp": datetime.utcnow().isoformat()
     })
     
@@ -334,3 +349,84 @@ async def get_all_grievance_forms(user_id: str = Depends(get_current_user)):
         form.pop("_id", None)
     
     return forms
+
+@router.get("/status/{form_id}")
+async def get_grievance_status(form_id: str, user_id: str = Depends(get_current_user)):
+    """Get the status and progress details for a specific grievance (normalized + citizen-friendly)."""
+    forms_collection = get_collection("grievance_forms")
+    
+    form = await forms_collection.find_one({"form_id": form_id})
+    if not form:
+        raise HTTPException(status_code=404, detail="Grievance not found")
+    
+    # Verify form belongs to user
+    if form.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Normalize status and infer steps
+    raw_status = str(form.get("status", "submitted") or "submitted").strip()
+    status_l = raw_status.lower()
+    
+    # If analysis timestamp exists but status still 'submitted' -> treat as analyzed
+    if status_l in ("submitted", "pending") and form.get("analyzed_at"):
+        status_l = "analyzed"
+    
+    # Map various stored values to canonical internal keys
+    canonical_map = {
+        "submitted": "submitted",
+        "pending": "submitted",
+        "analyzed": "analyzed",
+        "analysis_complete": "analyzed",
+        "assigned": "assigned",
+        "linked": "assigned",
+        "in progress": "in_progress",
+        "in_progress": "in_progress",
+        "working": "in_progress",
+        "resolved": "resolved",
+        "completed": "resolved",
+        "closed": "resolved",
+        "done": "resolved"
+    }
+    canonical = canonical_map.get(status_l, status_l)
+    
+    # Progress mapping aligned with frontend steps
+    progress_map = {
+        "submitted": 0,
+        "analyzed": 1,
+        "assigned": 2,
+        "in_progress": 3,
+        "resolved": 4
+    }
+    progress = progress_map.get(canonical, 0)
+    
+    # Human-friendly display labels
+    display_labels = {
+        "submitted": "Submitted",
+        "analyzed": "Analyzed",
+        "assigned": "Assigned",
+        "in_progress": "In Progress",
+        "resolved": "Resolved"
+    }
+    display_status = display_labels.get(canonical, raw_status.capitalize())
+    
+    # Citizen-friendly messages (fallback to stored message if present)
+    messages = {
+        "submitted": "Your grievance has been submitted and is awaiting analysis.",
+        "analyzed": "Your grievance has been analyzed and is being routed for action.",
+        "assigned": f"Assigned to {form.get('assigned_officer_name', 'an officer')} in {form.get('assigned_department', 'the department')}.",
+        "in_progress": "An officer is actively working on your grievance.",
+        "resolved": "Your grievance has been resolved. Please provide feedback if available."
+    }
+    message = form.get("message") or messages.get(canonical, "Status update in progress.")
+    
+    return {
+        "form_id": form_id,
+        "status": display_status,
+        "raw_status": raw_status,
+        "progress": progress,
+        "message": message,
+        "assigned_officer": form.get("assigned_officer_name"),
+        "department": form.get("assigned_department"),
+        "estimated_response_time": form.get("estimated_response_time"),
+        "resolved_at": form.get("resolved_at")
+    }

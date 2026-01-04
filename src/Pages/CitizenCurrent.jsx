@@ -41,6 +41,14 @@ export default function CitizenCurrent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // --- New state: clarifications grouped by grievance, UI toggles and reply buffers
+  const [clarificationsByGrievance, setClarificationsByGrievance] = useState(
+    {}
+  );
+  const [showClarifications, setShowClarifications] = useState({});
+  const [replyBuffer, setReplyBuffer] = useState({});
+  const [replySubmitting, setReplySubmitting] = useState({});
+
   useEffect(() => {
     let mounted = true;
     const tryEndpoints = async () => {
@@ -137,6 +145,63 @@ export default function CitizenCurrent() {
       mounted = false;
     };
   }, []);
+
+  // Fetch user's clarifications once on mount and group by grievance_id
+  useEffect(() => {
+    let mounted = true;
+    const loadClarifications = async () => {
+      try {
+        const res = await api.get("/clarifications");
+        const list = res?.data?.clarifications || res?.data || [];
+        const map = {};
+        for (const c of list) {
+          const gid = c.grievance_id || c.grievanceId || c.grievance || "";
+          if (!map[gid]) map[gid] = [];
+          map[gid].push(c);
+        }
+        if (mounted) setClarificationsByGrievance(map);
+      } catch (err) {
+        // silently ignore; clarifications are optional
+        console.error("Failed to load clarifications", err);
+      }
+    };
+    loadClarifications();
+    return () => (mounted = false);
+  }, []);
+
+  const toggleClarifications = (gid) => {
+    setShowClarifications((s) => ({ ...s, [gid]: !s[gid] }));
+  };
+
+  const submitClarificationResponse = async (clarId, gid) => {
+    const text = (replyBuffer[clarId] || "").trim();
+    if (!text) return;
+    setReplySubmitting((s) => ({ ...s, [clarId]: true }));
+    try {
+      await api.post(`/clarifications/${clarId}/respond`, {
+        citizen_response: text,
+      });
+      // Optimistically update local state: set citizen_response and responded_at
+      setClarificationsByGrievance((prev) => {
+        const arr = (prev[gid] || []).map((c) =>
+          (c.id || c._id || "").toString() === clarId.toString()
+            ? {
+                ...c,
+                citizen_response: text,
+                responded_at: new Date().toISOString(),
+              }
+            : c
+        );
+        return { ...prev, [gid]: arr };
+      });
+      setReplyBuffer((b) => ({ ...b, [clarId]: "" }));
+    } catch (err) {
+      console.error("Failed to submit clarification response", err);
+      // optionally show an error toast - omitted for brevity
+    } finally {
+      setReplySubmitting((s) => ({ ...s, [clarId]: false }));
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
@@ -366,6 +431,108 @@ export default function CitizenCurrent() {
                             ? "..."
                             : ""}
                         </div>
+                      </div>
+
+                      {/* Clarifications Section */}
+                      <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold">
+                            Clarifications
+                          </div>
+                          <div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleClarifications(itemId);
+                              }}
+                              className="px-3 py-1 bg-orange-600 text-white rounded-lg text-sm font-medium hover:brightness-105"
+                            >
+                              View Clarifications (
+                              {(clarificationsByGrievance[itemId] || []).length}
+                              )
+                            </button>
+                          </div>
+                        </div>
+                        {showClarifications[itemId] && (
+                          <div className="space-y-3 mt-2">
+                            {(clarificationsByGrievance[itemId] || [])
+                              .length === 0 ? (
+                              <div className="text-sm text-slate-500">
+                                No clarifications
+                              </div>
+                            ) : (
+                              clarificationsByGrievance[itemId].map((c) => {
+                                const cid = c.id || c._id || "";
+                                return (
+                                  <div
+                                    key={cid}
+                                    className="border border-slate-100 p-3 rounded-lg"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <div className="text-sm text-slate-700 mb-1">
+                                      <span className="font-semibold">
+                                        From officer:
+                                      </span>{" "}
+                                      {c.officer_id || "—"}
+                                    </div>
+                                    <div className="text-xs text-slate-500 mb-2">
+                                      Requested at:{" "}
+                                      {formatDate(
+                                        c.requested_at || c.requestedAt
+                                      )}
+                                    </div>
+                                    <div className="text-sm text-slate-800 mb-2">
+                                      {c.message}
+                                    </div>
+                                    {c.citizen_response ? (
+                                      <div className="text-sm text-green-700">
+                                        <div className="font-medium">
+                                          You responded:
+                                        </div>
+                                        <div className="text-slate-800">
+                                          {c.citizen_response}
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-1">
+                                          Responded at:{" "}
+                                          {formatDate(c.responded_at)}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-2 flex gap-2">
+                                        <textarea
+                                          value={replyBuffer[cid] || ""}
+                                          onChange={(e) =>
+                                            setReplyBuffer((b) => ({
+                                              ...b,
+                                              [cid]: e.target.value,
+                                            }))
+                                          }
+                                          placeholder="Type your response..."
+                                          className="flex-1 p-2 border rounded-lg text-sm"
+                                          rows={2}
+                                        />
+                                        <button
+                                          onClick={() =>
+                                            submitClarificationResponse(
+                                              cid,
+                                              itemId
+                                            )
+                                          }
+                                          disabled={replySubmitting[cid]}
+                                          className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:brightness-105"
+                                        >
+                                          {replySubmitting[cid]
+                                            ? "Sending..."
+                                            : "Respond"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {t.resolution_photos &&

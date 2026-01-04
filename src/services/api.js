@@ -77,7 +77,7 @@ export const grievanceAPI = {
   submit: (data) => api.post("/grievance/submit", data),
 
   // Get grievance form details
-  getForm: (formId) => api.get(`/grievance/forms/${formId}`),
+  getForm: (formId) => api.get(`/grievance/form/${formId}`),
 
   // Get session details
   getSession: (sessionId) => api.get(`/grievance/session/${sessionId}`),
@@ -85,6 +85,12 @@ export const grievanceAPI = {
   // Confirm resolution
   confirmResolution: (formId) =>
     api.post(`/grievance/forms/${formId}/confirm-resolution`),
+
+  // Get grievance status
+  getStatus: (formId) => api.get(`/grievance/status/${formId}`),
+
+  // Get all grievance forms
+  getForms: () => api.get(`/grievance/forms`),
 };
 
 // Officer Resolution API functions
@@ -94,6 +100,11 @@ export const officerAPI = {
 
   // Update ticket status
   updateStatus: (data) => api.patch("/resolution/officer/update-status", data),
+
+  // Convenience helpers
+  startWork: (data) => api.patch("/resolution/officer/start", data),
+  pauseWork: (data) => api.patch("/resolution/officer/pause", data),
+  resumeWork: (data) => api.patch("/resolution/officer/resume", data),
 
   // Request clarification from citizen
   requestClarification: (data) =>

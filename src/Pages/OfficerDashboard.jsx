@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   FileText,
   Layers,
@@ -37,6 +38,7 @@ export default function OfficerDashboard() {
   const [showClarificationModal, setShowClarificationModal] = useState(false);
   const [showResolvedDetailsModal, setShowResolvedDetailsModal] =
     useState(false);
+  const [showClarificationsModal, setShowClarificationsModal] = useState(false); // New state for clarifications modal
 
   // Forms
   const [resolveForm, setResolveForm] = useState({
@@ -47,6 +49,10 @@ export default function OfficerDashboard() {
   const [clarificationForm, setClarificationForm] = useState({
     message: "",
   });
+  const [statusForm, setStatusForm] = useState({
+    new_status: "",
+    progress_note: "",
+  }); // New state for status update form
 
   // Loading states
   const [resolveLoading, setResolveLoading] = useState(false);
@@ -56,6 +62,66 @@ export default function OfficerDashboard() {
   // Errors
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // normalize helper for statuses (reuse everywhere)
+  const normalizeStatus = (s = "") =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  const statusIs = (s, target) =>
+    normalizeStatus(s) === normalizeStatus(target);
+
+  // Helper: compute counts from current tickets/resolved/clarifications
+  const computeCounts = (
+    ticketsArray = [],
+    resolvedArray = [],
+    clarificationsArray = []
+  ) => {
+    // use top-level normalizeStatus helper
+    const assigned = ticketsArray.filter((t) => {
+      const st = normalizeStatus(t.ticket.status);
+      return st === "assigned" || st === "linked";
+    }).length;
+
+    const in_progress = ticketsArray.filter((t) => {
+      const st = normalizeStatus(t.ticket.status);
+      return st === "in_progress" || st === "inprogress";
+    }).length;
+
+    const completed =
+      (resolvedArray && resolvedArray.length) ||
+      ticketsArray.filter((t) => {
+        const st = normalizeStatus(t.ticket.status);
+        return (
+          st === "resolved" ||
+          st === "completed" ||
+          st === "closed" ||
+          st === "done"
+        );
+      }).length;
+
+    const clarifications = clarificationsArray
+      ? clarificationsArray.length
+      : ticketCounts.clarifications || 0;
+    return { assigned, in_progress, completed, clarifications };
+  };
+
+  // when selectedTicket changes suggest a sensible next status
+  useEffect(() => {
+    if (!selectedTicket) return;
+    const st = normalizeStatus(selectedTicket.ticket?.status);
+    let suggested = "";
+    if (st === "assigned") suggested = "in_progress";
+    else if (st === "in_progress") suggested = "resolved";
+    else if (st === "paused") suggested = "in_progress";
+    setStatusForm({ new_status: suggested, progress_note: "" });
+  }, [selectedTicket]);
+
+  // Keep ticketCounts in sync with loaded data — derived counts always reflect the UI
+  useEffect(() => {
+    const derived = computeCounts(tickets, resolvedTickets, clarifications);
+    setTicketCounts((prev) => ({ ...prev, ...derived }));
+  }, [tickets, resolvedTickets, clarifications]);
 
   // Fetch dashboard data
   useEffect(() => {
@@ -72,12 +138,19 @@ export default function OfficerDashboard() {
       const response = await officerAPI.getDashboard();
       console.log("Dashboard API Response:", response.data);
 
-      // Check if response is array or has a tickets property
       const ticketsData = Array.isArray(response.data)
         ? response.data
         : response.data?.tickets || [];
       setTickets(ticketsData);
       console.log("Tickets loaded:", ticketsData.length);
+
+      // Immediately compute and set counts from tickets (more reliable for UI)
+      const derived = computeCounts(
+        ticketsData,
+        resolvedTickets,
+        clarifications
+      );
+      setTicketCounts((prev) => ({ ...prev, ...derived }));
     } catch (error) {
       console.error("Failed to fetch dashboard:", error);
       console.error("Error details:", error.response?.data);
@@ -102,6 +175,12 @@ export default function OfficerDashboard() {
       const resolvedData = Array.isArray(response.data) ? response.data : [];
       setResolvedTickets(resolvedData);
       console.log("Resolved tickets loaded:", resolvedData.length);
+
+      // Update completed count
+      setTicketCounts((prev) => ({
+        ...prev,
+        ...computeCounts(tickets, resolvedData, clarifications),
+      }));
     } catch (error) {
       console.error("Failed to fetch resolved tickets:", error);
     }
@@ -111,7 +190,26 @@ export default function OfficerDashboard() {
     try {
       const response = await officerAPI.getTicketCounts();
       console.log("Ticket Counts API Response:", response.data);
-      setTicketCounts(response.data);
+
+      // Prefer counts derived from currently loaded tickets/clarifications when available
+      const derived = computeCounts(tickets, resolvedTickets, clarifications);
+      const apiCounts = response.data || {};
+      // Merge: use derived counts when they appear more accurate (e.g., assigned > 0)
+      const merged = {
+        assigned:
+          derived.assigned > 0 ? derived.assigned : apiCounts.assigned ?? 0,
+        in_progress:
+          derived.in_progress > 0
+            ? derived.in_progress
+            : apiCounts.in_progress ?? 0,
+        completed:
+          derived.completed > 0 ? derived.completed : apiCounts.completed ?? 0,
+        clarifications:
+          clarifications.length > 0
+            ? clarifications.length
+            : apiCounts.clarifications ?? 0,
+      };
+      setTicketCounts(merged);
     } catch (error) {
       console.error("Failed to fetch ticket counts:", error);
     }
@@ -120,7 +218,11 @@ export default function OfficerDashboard() {
   const fetchClarifications = async () => {
     try {
       const response = await officerAPI.getClarifications();
-      setClarifications(response.data.clarifications || []);
+      const clarifs = response.data.clarifications || [];
+      setClarifications(clarifs);
+
+      // Update clarifications count
+      setTicketCounts((prev) => ({ ...prev, clarifications: clarifs.length }));
     } catch (error) {
       console.error("Failed to fetch clarifications:", error);
     }
@@ -134,13 +236,99 @@ export default function OfficerDashboard() {
     setStatusUpdateLoading(true);
     setError("");
     try {
-      await officerAPI.updateStatus({
-        grievance_id: grievanceId,
-        new_status: newStatus,
-        progress_note: progressNote,
+      console.debug("status update requested", {
+        grievanceId,
+        newStatus,
+        progressNote,
       });
+
+      // Do NOT treat clarification or resolution as generic status updates.
+      // Use dedicated endpoints / UIs instead.
+      if (newStatus === "clarification_requested") {
+        // Use requestClarification endpoint directly
+        const resp = await officerAPI.requestClarification({
+          grievance_id: grievanceId,
+          message: progressNote || "Requesting clarification",
+        });
+        console.debug("requestClarification response", resp?.data || resp);
+        setSuccess("Clarification requested");
+        await fetchClarifications();
+        await fetchDashboard();
+        setTimeout(() => setSuccess(""), 3000);
+        setStatusUpdateLoading(false);
+        return;
+      }
+
+      if (newStatus === "resolved") {
+        // Open resolve modal and prefill action_taken from progressNote (user must submit photos)
+        const ticket =
+          selectedTicket ||
+          tickets.find((t) => t.ticket.grievance_id === grievanceId);
+        if (ticket) {
+          setSelectedTicket(ticket);
+          setResolveForm({
+            action_taken: progressNote || "",
+            closing_remark: "",
+            resolution_photos: [],
+          });
+          setShowResolveModal(true);
+        } else {
+          setError(
+            "Ticket not loaded — open the ticket and resolve using the Resolve dialog."
+          );
+        }
+        setStatusUpdateLoading(false);
+        return;
+      }
+
+      // Use semantic helpers where available
+      if (newStatus === "in_progress") {
+        const resp = await officerAPI.startWork({
+          grievance_id: grievanceId,
+          new_status: "in_progress",
+          progress_note: progressNote,
+        });
+        console.debug("startWork response", resp?.data || resp);
+      } else if (newStatus === "paused") {
+        const resp = await officerAPI.pauseWork({
+          grievance_id: grievanceId,
+          new_status: "paused",
+          progress_note: progressNote,
+        });
+        console.debug("pauseWork response", resp?.data || resp);
+      } else if (newStatus === "resume" || newStatus === "resume_work") {
+        const resp = await officerAPI.resumeWork({
+          grievance_id: grievanceId,
+          new_status: "in_progress",
+          progress_note: progressNote,
+        });
+        console.debug("resumeWork response", resp?.data || resp);
+      } else {
+        // Fallback: generic update-status endpoint (for status changes that truly belong here)
+        const resp = await officerAPI.updateStatus({
+          grievance_id: grievanceId,
+          new_status: newStatus,
+          progress_note: progressNote,
+        });
+        console.debug("updateStatus response", resp?.data || resp);
+      }
+
       setSuccess(`Ticket status updated to ${newStatus}`);
-      fetchDashboard();
+      // clear the small status form to avoid accidental re-submits
+      setStatusForm({ new_status: "", progress_note: "" });
+      await fetchDashboard();
+      // refresh selected ticket when open
+      if (
+        selectedTicket &&
+        selectedTicket.ticket?.grievance_id === grievanceId
+      ) {
+        try {
+          const res = await officerAPI.getTicketDetails(grievanceId);
+          setSelectedTicket(res.data);
+        } catch {
+          /* ignore */
+        }
+      }
       setTimeout(() => setSuccess(""), 3000);
     } catch (error) {
       setError(error.response?.data?.detail || "Failed to update status");
@@ -219,10 +407,77 @@ export default function OfficerDashboard() {
     setClarificationLoading(false);
   };
 
-  const viewTicketDetails = async (ticket) => {
-    // For resolved tickets, show the resolved details modal
-    setSelectedTicket(ticket);
-    setShowResolvedDetailsModal(true);
+  // Submit status change from details panel and refresh UI
+  const submitStatusChange = async () => {
+    if (!selectedTicket || !statusForm.new_status) return;
+    // make it clear in console when the UI initiates the update
+    console.debug("submitStatusChange ->", {
+      id: selectedTicket.ticket.grievance_id,
+      statusForm,
+    });
+
+    // Special-case actions that require different flows:
+    if (statusForm.new_status === "clarification_requested") {
+      // Open Clarification modal prefilled with the progress note
+      setClarificationForm({ message: statusForm.progress_note || "" });
+      setShowClarificationModal(true);
+      return;
+    }
+
+    if (statusForm.new_status === "resolved") {
+      // Open Resolve modal and prefill action_taken
+      setResolveForm({
+        action_taken: statusForm.progress_note || "",
+        closing_remark: "",
+        resolution_photos: [],
+      });
+      setShowResolveModal(true);
+      setStatusForm({ new_status: "", progress_note: "" });
+      return;
+    }
+
+    await handleStatusUpdate(
+      selectedTicket.ticket.grievance_id,
+      statusForm.new_status,
+      statusForm.progress_note
+    );
+
+    // refresh lists and current view
+    await fetchDashboard();
+    await fetchResolvedTickets();
+    try {
+      const res = await officerAPI.getTicketDetails(
+        selectedTicket.ticket.grievance_id
+      );
+      setSelectedTicket(res.data);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const viewTicketDetails = async (ticketOrId) => {
+    setError("");
+    setLoading(true);
+    try {
+      const id = ticketOrId.ticket?.grievance_id || ticketOrId;
+      const response = await officerAPI.getTicketDetails(id);
+      const data = response.data;
+      setSelectedTicket(data);
+      const st = normalizeStatus(data.ticket?.status);
+      if (st === "resolved") {
+        setShowResolvedDetailsModal(true);
+      } else {
+        setShowResolvedDetailsModal(false);
+      }
+    } catch (err) {
+      console.error("Failed to load ticket details:", err);
+      setError(
+        err?.response?.data?.detail ||
+          err.message ||
+          "Failed to load ticket details"
+      );
+    }
+    setLoading(false);
   };
 
   const getStatusColor = (status) => {
@@ -345,7 +600,10 @@ export default function OfficerDashboard() {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-2xl shadow-md border border-slate-200">
+          <div
+            className="bg-white p-6 rounded-2xl shadow-md border border-slate-200 cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => setShowClarificationsModal(true)}
+          >
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center text-orange-600">
                 <MessageSquare size={24} />
@@ -522,7 +780,7 @@ export default function OfficerDashboard() {
                           >
                             <Eye size={18} />
                           </button>
-                          {item.ticket.status === "assigned" && (
+                          {statusIs(item.ticket.status, "assigned") && (
                             <button
                               onClick={() =>
                                 handleStatusUpdate(
@@ -537,8 +795,22 @@ export default function OfficerDashboard() {
                               <PlayCircle size={18} />
                             </button>
                           )}
-                          {item.ticket.status === "in_progress" && (
+                          {statusIs(item.ticket.status, "in_progress") && (
                             <>
+                              {/* Quick pause action */}
+                              <button
+                                onClick={() =>
+                                  handleStatusUpdate(
+                                    item.ticket.grievance_id,
+                                    "paused"
+                                  )
+                                }
+                                disabled={statusUpdateLoading}
+                                className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors"
+                                title="Pause Work"
+                              >
+                                <PauseCircle size={18} />
+                              </button>
                               <button
                                 onClick={() => openClarificationModal(item)}
                                 className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg transition-colors"
@@ -554,6 +826,21 @@ export default function OfficerDashboard() {
                                 <CheckCircle size={18} />
                               </button>
                             </>
+                          )}
+                          {statusIs(item.ticket.status, "paused") && (
+                            <button
+                              onClick={() =>
+                                handleStatusUpdate(
+                                  item.ticket.grievance_id,
+                                  "in_progress"
+                                )
+                              }
+                              disabled={statusUpdateLoading}
+                              className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                              title="Resume Work"
+                            >
+                              <PlayCircle size={18} />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -580,6 +867,51 @@ export default function OfficerDashboard() {
               </button>
             </div>
 
+            {/* Status update form (small) */}
+            <div className="mb-6 p-4 bg-slate-50 rounded-lg flex flex-col gap-3 border">
+              <div className="text-xs font-bold text-slate-500 uppercase">
+                Officer Actions
+              </div>
+              <div className="flex gap-2 items-start">
+                <select
+                  value={statusForm.new_status}
+                  onChange={(e) =>
+                    setStatusForm({ ...statusForm, new_status: e.target.value })
+                  }
+                  className="p-2 border rounded bg-white text-sm"
+                >
+                  <option value="">Select action…</option>
+                  <option value="in_progress">Start Work</option>
+                  <option value="paused">Pause Work</option>
+                  <option value="resolved">Resolve</option>
+                  <option value="clarification_requested">
+                    Request Clarification
+                  </option>
+                </select>
+
+                <textarea
+                  placeholder="Optional progress note..."
+                  value={statusForm.progress_note}
+                  onChange={(e) =>
+                    setStatusForm({
+                      ...statusForm,
+                      progress_note: e.target.value,
+                    })
+                  }
+                  rows={2}
+                  className="flex-1 p-2 border rounded text-sm bg-white"
+                />
+
+                <button
+                  onClick={submitStatusChange}
+                  disabled={statusUpdateLoading || !statusForm.new_status}
+                  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded font-bold disabled:opacity-50"
+                >
+                  {statusUpdateLoading ? "Updating…" : "Update"}
+                </button>
+              </div>
+            </div>
+
             {selectedTicket.urgency_banner && (
               <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
                 <div className="flex items-start gap-3">
@@ -588,7 +920,9 @@ export default function OfficerDashboard() {
                     size={20}
                   />
                   <div className="text-red-700 font-medium">
-                    {selectedTicket.urgency_banner}
+                    <ReactMarkdown>
+                      {selectedTicket.urgency_banner}
+                    </ReactMarkdown>
                   </div>
                 </div>
               </div>
@@ -650,8 +984,8 @@ export default function OfficerDashboard() {
                 <div className="text-xs font-bold text-blue-500 uppercase mb-2">
                   Context
                 </div>
-                <div className="text-blue-900">
-                  {selectedTicket.context_panel}
+                <div className="text-blue-900 leading-relaxed">
+                  <ReactMarkdown>{selectedTicket.context_panel}</ReactMarkdown>
                 </div>
               </div>
             )}
@@ -661,8 +995,10 @@ export default function OfficerDashboard() {
                 <div className="text-xs font-bold text-purple-500 uppercase mb-2 flex items-center gap-2">
                   <Layers size={14} /> Cluster Summary
                 </div>
-                <div className="text-purple-900">
-                  {selectedTicket.cluster_summary}
+                <div className="text-purple-900 leading-relaxed">
+                  <ReactMarkdown>
+                    {selectedTicket.cluster_summary}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
@@ -696,7 +1032,9 @@ export default function OfficerDashboard() {
                   AI Priority Reasoning
                 </div>
                 <div className="text-slate-700">
-                  {selectedTicket.ticket.priority_reasoning}
+                  <ReactMarkdown>
+                    {selectedTicket.ticket.priority_reasoning}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
@@ -885,7 +1223,9 @@ export default function OfficerDashboard() {
                         Urgency Alert
                       </div>
                       <div className="text-red-900 font-medium text-lg">
-                        {selectedTicket.urgency_banner}
+                        <ReactMarkdown>
+                          {selectedTicket.urgency_banner}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   </div>
@@ -907,7 +1247,9 @@ export default function OfficerDashboard() {
                   </div>
                   {selectedTicket.ticket.priority_reasoning && (
                     <div className="mt-3 p-3 bg-slate-50 rounded-lg text-sm text-slate-700">
-                      {selectedTicket.ticket.priority_reasoning}
+                      <ReactMarkdown>
+                        {selectedTicket.ticket.priority_reasoning}
+                      </ReactMarkdown>
                     </div>
                   )}
                 </div>
@@ -972,7 +1314,9 @@ export default function OfficerDashboard() {
                     <FileText size={16} /> Context Information
                   </div>
                   <div className="text-slate-800 leading-relaxed text-lg bg-blue-50 p-4 rounded-lg">
-                    {selectedTicket.context_panel}
+                    <ReactMarkdown>
+                      {selectedTicket.context_panel}
+                    </ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -984,7 +1328,9 @@ export default function OfficerDashboard() {
                     <Layers size={16} /> Cluster Analysis
                   </div>
                   <div className="text-slate-800 leading-relaxed text-lg bg-purple-50 p-4 rounded-lg">
-                    {selectedTicket.cluster_summary}
+                    <ReactMarkdown>
+                      {selectedTicket.cluster_summary}
+                    </ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -1162,6 +1508,91 @@ export default function OfficerDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CLARIFICATIONS MODAL */}
+      {showClarificationsModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-up overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl my-8 overflow-hidden">
+            <div className="bg-gradient-to-r from-orange-600 to-orange-700 text-white p-6 flex justify-between items-center">
+              <h3 className="font-bold text-2xl flex items-center gap-3">
+                <MessageSquare size={28} /> Clarifications (
+                {clarifications.length})
+              </h3>
+              <button
+                onClick={() => setShowClarificationsModal(false)}
+                className="hover:bg-white/20 p-2 rounded-lg transition-colors"
+              >
+                <XCircle size={28} />
+              </button>
+            </div>
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              {clarifications.length === 0 ? (
+                <div className="text-center text-slate-500 py-8">
+                  No clarifications requested yet.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {clarifications.map((clarification) => (
+                    <div
+                      key={clarification.id}
+                      className="bg-slate-50 rounded-xl p-6 border border-slate-200"
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <div className="text-xs text-slate-500 uppercase font-bold mb-1">
+                            Grievance ID
+                          </div>
+                          <div className="font-mono text-slate-800">
+                            {clarification.grievance_id}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500 uppercase font-bold mb-1">
+                            Requested At
+                          </div>
+                          <div className="text-slate-800">
+                            {new Date(
+                              clarification.requested_at
+                            ).toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mb-4">
+                        <div className="text-xs text-slate-500 uppercase font-bold mb-2">
+                          Message
+                        </div>
+                        <div className="text-slate-800 bg-white p-3 rounded-lg border">
+                          {clarification.message}
+                        </div>
+                      </div>
+                      {clarification.citizen_response ? (
+                        <div>
+                          <div className="text-xs text-slate-500 uppercase font-bold mb-2">
+                            Citizen Response
+                          </div>
+                          <div className="text-green-800 bg-green-50 p-3 rounded-lg border border-green-200">
+                            {clarification.citizen_response}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            Responded at:{" "}
+                            {new Date(
+                              clarification.responded_at
+                            ).toLocaleString()}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-orange-600 bg-orange-50 p-3 rounded-lg border border-orange-200">
+                          Awaiting citizen response
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -147,7 +147,67 @@ async def get_ticket_counts(current_officer: dict = Depends(get_current_officer)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.patch("/start", response_model=StatusUpdateResponse)
+async def start_ticket_work(
+    request: UpdateStatusRequest,
+    current_officer: dict = Depends(get_current_officer)
+):
+    """Convenience endpoint to mark a ticket as in_progress (start work)"""
+    officer_service = OfficerService()
+    try:
+        result = await officer_service.update_ticket_status(
+            officer_id=current_officer["sub"],
+            grievance_id=request.grievance_id,
+            new_status="in_progress",
+            progress_note=request.progress_note
+        )
+        return StatusUpdateResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.patch("/pause", response_model=StatusUpdateResponse)
+async def pause_ticket_work(
+    request: UpdateStatusRequest,
+    current_officer: dict = Depends(get_current_officer)
+):
+    """Convenience endpoint to mark a ticket as paused"""
+    officer_service = OfficerService()
+    try:
+        result = await officer_service.update_ticket_status(
+            officer_id=current_officer["sub"],
+            grievance_id=request.grievance_id,
+            new_status="paused",
+            progress_note=request.progress_note
+        )
+        return StatusUpdateResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/resume", response_model=StatusUpdateResponse)
+async def resume_ticket_work(
+    request: UpdateStatusRequest,
+    current_officer: dict = Depends(get_current_officer)
+):
+    """Convenience endpoint to resume work (set to in_progress)"""
+    officer_service = OfficerService()
+    try:
+        result = await officer_service.update_ticket_status(
+            officer_id=current_officer["sub"],
+            grievance_id=request.grievance_id,
+            new_status="in_progress",
+            progress_note=request.progress_note
+        )
+        return StatusUpdateResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
 async def health_check():

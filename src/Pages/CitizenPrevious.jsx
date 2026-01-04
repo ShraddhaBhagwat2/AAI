@@ -175,29 +175,31 @@ export default function CitizenPrevious() {
             const resolvedDate =
               t.resolved_at || t.resolved_on || t.resolvedOn || t.closed_at;
 
+            const handleToggle = async (e) => {
+              e.stopPropagation();
+              try {
+                const id = resolveId(t);
+                if (!id) return;
+                const res = await (
+                  await import("../services/api")
+                ).grievanceAPI.getForm(id);
+                const updated = res?.data || res;
+                setItems((prev) =>
+                  prev.map((p) =>
+                    resolveId(p) === id
+                      ? { ...p, ...updated, form_id: updated.form_id || id }
+                      : p
+                  )
+                );
+                setExpandedId(isExpanded ? null : id);
+              } catch (e) {
+                console.error("Failed to refresh grievance", e);
+              }
+            };
+
             return (
               <div
                 key={itemId || `prev-${idx}`}
-                onClick={async () => {
-                  try {
-                    const id = resolveId(t);
-                    if (!id) return;
-                    const res = await (
-                      await import("../services/api")
-                    ).grievanceAPI.getForm(id);
-                    const updated = res?.data || res;
-                    setItems((prev) =>
-                      prev.map((p) =>
-                        resolveId(p) === id
-                          ? { ...p, ...updated, form_id: updated.form_id || id }
-                          : p
-                      )
-                    );
-                    setExpandedId(isExpanded ? null : id);
-                  } catch (e) {
-                    console.error("Failed to refresh grievance", e);
-                  }
-                }}
                 className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg hover:shadow-2xl transition-all duration-300 cursor-pointer group animate-fade-in-up overflow-hidden"
                 style={{ animationDelay: `${idx * 0.1}s` }}
               >
@@ -245,7 +247,10 @@ export default function CitizenPrevious() {
                             : "—"}
                         </div>
                       </div>
-                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                      <div
+                        className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center group-hover:bg-green-200 transition-colors cursor-pointer"
+                        onClick={handleToggle}
+                      >
                         <span
                           className={`text-green-600 transform transition-transform duration-200 ${
                             isExpanded ? "rotate-180" : ""
@@ -259,7 +264,7 @@ export default function CitizenPrevious() {
 
                   {isExpanded && (
                     <div className="mt-6 p-6 bg-gradient-to-br from-slate-50 to-green-50 rounded-xl border border-slate-200 animate-fade-in-up">
-                      <div className="grid md:grid-cols-3 gap-4 mb-4">
+                      <div className="grid md:grid-cols-4 gap-4 mb-4">
                         <div className="bg-white/80 p-4 rounded-xl shadow-sm">
                           <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
                             Category
@@ -298,7 +303,7 @@ export default function CitizenPrevious() {
                             Response Time
                           </div>
                           <div className="font-semibold text-slate-800">
-                            {t.estimated_response_time || t.eta || "—"}
+                            {t.estimated_response_time || t.eta || "-"}
                           </div>
                         </div>
                         <div className="bg-white/80 p-4 rounded-xl shadow-sm">
@@ -313,6 +318,56 @@ export default function CitizenPrevious() {
                               : "-"}
                           </div>
                         </div>
+                        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+                          <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
+                            Urgency Level
+                          </div>
+                          <div className="font-semibold text-slate-800">
+                            {t.urgency_level || "-"}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+                          <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
+                            Priority Score
+                          </div>
+                          <div className="font-semibold text-slate-800">
+                            {t.priority_score || "-"}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+                          <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
+                            Incident DateTime
+                          </div>
+                          <div className="font-semibold text-slate-800 text-sm">
+                            {t.incident_datetime
+                              ? formatDate(t.incident_datetime)
+                              : "-"}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+                          <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
+                            Action Taken
+                          </div>
+                          <div className="font-semibold text-slate-800">
+                            {t.action_taken || "-"}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+                          <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
+                            Closing Remark
+                          </div>
+                          <div className="font-semibold text-slate-800">
+                            {t.closing_remark || "-"}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+                          <div className="text-xs text-slate-500 mb-1 uppercase tracking-wide">
+                            Assigned Department
+                          </div>
+                          <div className="font-semibold text-slate-800">
+                            {t.assigned_department || "-"}
+                          </div>
+                        </div>
                       </div>
 
                       <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
@@ -324,12 +379,32 @@ export default function CitizenPrevious() {
                             t.full_description ||
                             t.original_text ||
                             "No description available"
-                          ).slice(0, 300)}
+                          ).slice(0, 500)}
                           {(t.full_description || t.original_text || "")
-                            .length > 300
+                            .length > 500
                             ? "..."
                             : ""}
                         </div>
+                        {t.document_insights && (
+                          <div className="mt-4">
+                            <div className="text-xs text-slate-500 mb-2 uppercase tracking-wide font-semibold">
+                              Document Insights
+                            </div>
+                            <div className="text-sm text-slate-800 leading-relaxed">
+                              {t.document_insights}
+                            </div>
+                          </div>
+                        )}
+                        {t.message && (
+                          <div className="mt-4">
+                            <div className="text-xs text-slate-500 mb-2 uppercase tracking-wide font-semibold">
+                              Message
+                            </div>
+                            <div className="text-sm text-slate-800 leading-relaxed">
+                              {t.message}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {t.resolution_photos &&

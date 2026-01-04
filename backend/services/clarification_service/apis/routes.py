@@ -9,6 +9,8 @@ from shared.utils.auth_middleware import get_current_user
 
 router = APIRouter()
 
+# expose both "/clarifications" (current) and root "/" so GET /clarifications works
+@router.get("/", response_model=ClarificationResponse)
 @router.get("/clarifications", response_model=ClarificationResponse)
 async def get_clarifications(current_user: str = Depends(get_current_user)):
     grievance_col = get_grievance_forms_collection()
@@ -39,6 +41,8 @@ async def get_clarifications(current_user: str = Depends(get_current_user)):
     
     return ClarificationResponse(clarifications=clarifications)
 
+# expose both "/{id}/respond" (root) and "/clarifications/{id}/respond" for compatibility
+@router.post("/{clarification_id}/respond")
 @router.post("/clarifications/{clarification_id}/respond")
 async def respond_to_clarification(
     clarification_id: str,

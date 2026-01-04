@@ -35,6 +35,9 @@ export default function CitizenPortal() {
   const [rawError, setRawError] = useState(null);
 
   const [selectedFile, setSelectedFile] = useState(null);
+  const [ticketProgress, setTicketProgress] = useState(null);
+  const [ticketStatus, setTicketStatus] = useState("");
+  const [ticketStatusMessage, setTicketStatusMessage] = useState("");
 
   // Safe serializer for errors (handles circular refs and File objects)
   function safeSerialize(obj) {
@@ -256,6 +259,81 @@ export default function CitizenPortal() {
     steps: ["Received", "Triaged", "Assigned", "In-Field Action", "Resolved"],
     current: 2,
     slaHours: 48,
+  };
+
+  // file input ref + handlers
+  const fileInputRef = useRef(null);
+  const onFileChange = async (file) => {
+    if (!file) return;
+    setSelectedFile(file);
+    setIsLoading(true);
+    setServerMessage("Uploading photo and extracting info...");
+    try {
+      const fd = new FormData();
+      fd.append("text", textInput || "");
+      fd.append("files", file);
+      fd.append("files[]", file);
+      const res = await grievanceAPI.start(fd);
+      const data = res.data || {};
+      setSessionId(data.session_id || null);
+      const extracted = data.extracted_data || {};
+      setExtractedData(extracted);
+      setFormFields({
+        category: extracted.category || formFields.category,
+        location: extracted.location || formFields.location,
+        description: extracted.description || formFields.description,
+      });
+      setMissingInfo(data.missing_info || []);
+      setClarificationQuestions(data.clarification_questions || []);
+      setIsComplete(Boolean(data.is_complete));
+      setServerMessage(data.message || "Photo processed");
+      setStep(2);
+    } catch (err) {
+      console.error("photo upload error", err);
+      const msg =
+        err?.response?.data?.message || err?.message || "Photo upload failed";
+      setServerMessage(String(msg));
+      try {
+        const respData = err?.response?.data;
+        let summary = err?.message || "Error";
+        if (respData) {
+          if (typeof respData === "string") summary = respData;
+          else if (respData.message) summary = respData.message;
+          else if (respData.detail)
+            summary = Array.isArray(respData.detail)
+              ? JSON.stringify(respData.detail)
+              : String(respData.detail);
+          else summary = "[server error — see console]";
+        }
+        setRawError(summary);
+      } catch {
+        setRawError(String(err));
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const removeSelectedFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // New helper to submit typed text
+  const handleSubmitText = async () => {
+    if (!textInput || !String(textInput).trim()) {
+      setServerMessage("Please enter a grievance or use the mic.");
+      return;
+    }
+    setServerMessage("Starting grievance session...");
+    await startSessionWithText(String(textInput).trim());
+  };
+
+  // keyboard shortcut for quick send (Ctrl/Cmd+Enter)
+  const handleTextareaKeyDown = (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSubmitText();
+    }
   };
 
   return (
@@ -511,241 +589,177 @@ export default function CitizenPortal() {
 
         {/* VIEW 2: NEW COMPLAINT FLOW (NLP -> Form -> Verify) */}
         {view === "new-complaint" && (
-          <div className="p-6 h-screen flex flex-col">
+          <div className="p-6 flex flex-col">
+            {" "}
+            {/* removed h-screen to avoid huge centering */}
             <button
               onClick={() => setView("dashboard")}
               className="text-slate-400 mb-4 text-sm font-bold"
             >
               ← Back
             </button>
-
             {/* Step 1: Speak */}
             {step === 1 && (
-              <div className="flex-1 flex flex-col items-center justify-center">
-                <h2 className="text-2xl font-bold text-slate-800 mb-8 text-center">
+              <div className="w-full max-w-md mx-auto mt-2">
+                <h2 className="text-xl font-semibold text-slate-800 mb-3">
                   What is the issue?
                 </h2>
-                <div className="w-full max-w-lg">
+
+                <div className="bg-white border border-slate-100 rounded-lg p-3 shadow-sm">
                   <textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
-                    placeholder="Type or paste your grievance here (or use the mic)..."
-                    className="w-full p-3 border rounded-lg h-24 mb-3"
+                    onKeyDown={handleTextareaKeyDown}
+                    placeholder="Type your grievance here (Ctrl/Cmd + Enter to send)"
+                    className="w-full p-2 border rounded h-28 text-sm resize-none"
                   />
+
+                  <hr className="my-3 border-slate-100" />
+
                   <div className="flex items-center gap-3">
-                    <div
-                      onClick={async () => {
-                        // start browser speech recognition (if available) and send transcript to backend
-                        const SpeechRecognition =
-                          window.SpeechRecognition ||
-                          window.webkitSpeechRecognition;
-                        if (!SpeechRecognition) {
-                          // fallback: use typed text instead — start session with typed text
-                          setServerMessage(
-                            "Speech recognition not supported in this browser. Sending typed text instead."
-                          );
-                          await startSessionWithText(textInput || "");
-                          return;
-                        }
-
-                        // don't recreate if already running
-                        if (recognitionRef.current) {
-                          recognitionRef.current.stop();
-                          recognitionRef.current = null;
-                          setIsRecording(false);
-                          return;
-                        }
-
-                        setIsRecording(true);
-                        try {
-                          const recog = new SpeechRecognition();
-                          recog.lang = "en-US";
-                          recog.interimResults = false;
-                          recog.maxAlternatives = 1;
-
-                          recog.onresult = async (event) => {
-                            const transcript =
-                              (event.results[0] &&
-                                event.results[0][0] &&
-                                event.results[0][0].transcript) ||
-                              "";
-                            setTextInput(transcript);
-                            // send to start session
-                            await startSessionWithText(transcript);
-                          };
-
-                          recog.onerror = (ev) => {
-                            console.error("Speech recognition error", ev);
+                    {/* Left: mic + clear */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          // existing mic start logic compacted
+                          const SpeechRecognition =
+                            window.SpeechRecognition ||
+                            window.webkitSpeechRecognition;
+                          if (!SpeechRecognition) {
                             setServerMessage(
-                              "Speech recognition error: " +
-                                (ev.error || ev.message || "unknown")
+                              "Speech recognition not supported. Using typed text."
+                            );
+                            await startSessionWithText(textInput || "");
+                            return;
+                          }
+                          if (recognitionRef.current) {
+                            recognitionRef.current.stop();
+                            recognitionRef.current = null;
+                            setIsRecording(false);
+                            return;
+                          }
+                          setIsRecording(true);
+                          try {
+                            const recog = new SpeechRecognition();
+                            recog.lang = "en-US";
+                            recog.interimResults = false;
+                            recog.maxAlternatives = 1;
+                            recog.onresult = async (event) => {
+                              const transcript =
+                                event.results?.[0]?.[0]?.transcript || "";
+                              setTextInput(transcript);
+                              await startSessionWithText(transcript);
+                            };
+                            recog.onerror = (ev) => {
+                              console.error("Speech error", ev);
+                              setServerMessage("Speech recognition error");
+                              setIsRecording(false);
+                              recognitionRef.current = null;
+                            };
+                            recog.onend = () => {
+                              setIsRecording(false);
+                              recognitionRef.current = null;
+                            };
+                            recognitionRef.current = recog;
+                            recog.start();
+                          } catch (err) {
+                            console.error(err);
+                            setServerMessage(
+                              err?.message || "Failed to start mic"
                             );
                             setIsRecording(false);
                             recognitionRef.current = null;
-                          };
+                          }
+                        }}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          isRecording
+                            ? "bg-red-100 ring-1 ring-red-200"
+                            : "bg-orange-100"
+                        }`}
+                        aria-label="Record"
+                      >
+                        <Mic
+                          size={16}
+                          className={
+                            isRecording ? "text-red-500" : "text-blue-600"
+                          }
+                        />
+                      </button>
 
-                          recog.onend = () => {
-                            setIsRecording(false);
-                            recognitionRef.current = null;
-                          };
-
-                          recognitionRef.current = recog;
-                          recog.start();
-                        } catch (err) {
-                          console.error(err);
-                          setServerMessage(
-                            err.message || "Failed to start speech recognition"
-                          );
-                          setIsRecording(false);
-                          recognitionRef.current = null;
-                        }
-                      }}
-                      className={`w-20 h-20 rounded-full flex items-center justify-center cursor-pointer transition-all ${
-                        isRecording
-                          ? "bg-red-100 animate-pulse ring-4 ring-red-200"
-                          : "bg-orange-100"
-                      }`}
-                    >
-                      <Mic
-                        size={28}
-                        className={
-                          isRecording ? "text-red-500" : "text-blue-600"
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => {
                           setTextInput("");
                           setServerMessage("");
                           setRawError(null);
                         }}
-                        className="px-3 py-2 bg-slate-100 rounded"
+                        className="px-2 py-1 bg-slate-100 rounded text-sm"
                       >
                         Clear
                       </button>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">
-                        Upload photo (optional)
+                    {/* Center: file name + attach */}
+                    <div className="flex-1 flex items-center gap-2 text-sm text-slate-600">
+                      {selectedFile ? (
+                        <div className="flex items-center gap-2">
+                          <span className="truncate max-w-[200px]">
+                            {selectedFile.name}
+                          </span>
+                          <button
+                            onClick={removeSelectedFile}
+                            className="text-xs text-slate-500 px-1"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-xs">No attachment</div>
+                      )}
+                      <label className="ml-2 inline-flex items-center gap-2 text-xs text-blue-600 cursor-pointer">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => onFileChange(e.target.files?.[0])}
+                        />
+                        Attach
                       </label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={async (e) => {
-                          const file = e.target.files[0];
-                          if (!file) return;
-                          setSelectedFile(file);
-                          setIsLoading(true);
-                          setServerMessage(
-                            "Uploading photo and extracting info..."
-                          );
-                          try {
-                            const fd = new FormData();
-                            fd.append("text", textInput || "");
-                            // include both field names to match backend expectations
-                            fd.append("files", file);
-                            fd.append("files[]", file);
-                            const res = await grievanceAPI.start(fd);
-                            const data = res.data || {};
-                            setSessionId(data.session_id || null);
-                            const extracted = data.extracted_data || {};
-                            setExtractedData(extracted);
-                            setFormFields({
-                              category:
-                                extracted.category || formFields.category,
-                              location:
-                                extracted.location || formFields.location,
-                              description:
-                                extracted.description || formFields.description,
-                            });
-                            setMissingInfo(data.missing_info || []);
-                            setClarificationQuestions(
-                              data.clarification_questions || []
-                            );
-                            setIsComplete(Boolean(data.is_complete));
-                            setServerMessage(data.message || "Photo processed");
-                            setStep(2);
-                          } catch (err) {
-                            console.error("photo upload error", err);
-                            console.debug(
-                              "photo upload response data:",
-                              err?.response?.data
-                            );
-                            const msg =
-                              err?.response?.data?.message ||
-                              err?.message ||
-                              "Photo upload failed";
-                            setServerMessage(String(msg));
-                            try {
-                              const respData = err?.response?.data;
-                              let summary = err?.message || "Error";
-                              if (respData) {
-                                if (typeof respData === "string")
-                                  summary = respData;
-                                else if (respData.message)
-                                  summary = respData.message;
-                                else if (respData.detail)
-                                  summary = Array.isArray(respData.detail)
-                                    ? JSON.stringify(respData.detail)
-                                    : String(respData.detail);
-                                else summary = "[server error — see console]";
-                              }
-                              setRawError(summary);
-                              console.debug(
-                                "full photo upload error object:",
-                                err?.response?.data || err
-                              );
-                            } catch {
-                              setRawError(String(err));
-                            }
-                          } finally {
-                            setIsLoading(false);
-                          }
-                        }}
-                      />
+                    </div>
+
+                    {/* Right: Send */}
+                    <div>
+                      <button
+                        onClick={handleSubmitText}
+                        disabled={isLoading}
+                        className="px-4 py-2 bg-orange-600 text-white rounded-md font-bold text-sm"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                  {/* helper row */}
+                  <div className="mt-2 text-xs text-slate-400 flex justify-between">
+                    <div>Tip: Press Ctrl/Cmd + Enter to send</div>
+                    <div className="text-xs text-slate-500">
+                      {serverMessage}
                     </div>
                   </div>
                 </div>
-                <p className="mt-6 text-slate-500">
-                  {isRecording ? "Listening..." : "Tap to Speak"}
-                </p>
-                {serverMessage && (
-                  <div className="mt-3 text-sm text-slate-700">
-                    {serverMessage}
-                  </div>
-                )}
-                {rawError && (
-                  <pre className="mt-2 p-2 text-xs bg-red-50 border border-red-100 text-red-700 rounded">
-                    {rawError}
-                  </pre>
-                )}
-
-                <div className="mt-8 grid grid-cols-2 gap-4 w-full">
-                  <button className="p-4 bg-slate-100 rounded-xl font-bold text-slate-600 text-sm flex flex-col items-center gap-2">
-                    <Camera size={20} /> Upload Photo
-                  </button>
-                  <button className="p-4 bg-slate-100 rounded-xl font-bold text-slate-600 text-sm flex flex-col items-center gap-2">
-                    <Send size={20} /> Type Text
-                  </button>
-                </div>
               </div>
             )}
-
             {/* Step 2: AI Verify (Diagram: "NLP -> Form -> Edit") */}
             {step === 2 && (
               <div className="animate-in slide-in-from-bottom-10">
                 {isLoading && (
-                  <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded text-sm text-blue-700">
+                  <div className="mb-2 p-2 bg-blue-50 border border-blue-100 rounded text-sm text-blue-700">
                     Processing... {serverMessage}
                   </div>
                 )}
-                <div className="bg-green-50 p-3 rounded-lg flex items-center gap-2 text-green-800 font-bold mb-6">
-                  <CheckCircle size={18} /> AI Analyzed your voice
+                <div className="bg-green-50 p-2 rounded-lg flex items-center gap-2 text-green-800 font-bold mb-4">
+                  <CheckCircle size={16} /> AI Analyzed your voice
                 </div>
-                <form className="space-y-4">
+                <form className="space-y-3">
                   <div className="text-xs text-slate-500">
                     Session: <strong>{sessionId || "—"}</strong>
                   </div>
@@ -755,7 +769,7 @@ export default function CitizenPortal() {
                     </div>
                   )}
                   <div>
-                    <label className="text-xs font-bold text-slate-400">
+                    <label className="text-xs font-bold text-slate-400 uppercase">
                       CATEGORY
                     </label>
                     <input
@@ -767,11 +781,11 @@ export default function CitizenPortal() {
                           category: e.target.value,
                         })
                       }
-                      className="w-full p-3 border rounded-lg font-bold text-slate-800 bg-white"
+                      className="w-full p-2 border rounded-lg font-bold text-slate-800 bg-white text-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-400">
+                    <label className="text-xs font-bold text-slate-400 uppercase">
                       LOCATION
                     </label>
                     <input
@@ -783,11 +797,11 @@ export default function CitizenPortal() {
                           location: e.target.value,
                         })
                       }
-                      className="w-full p-3 border rounded-lg text-slate-800 bg-white"
+                      className="w-full p-2 border rounded-lg text-slate-800 bg-white text-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-400">
+                    <label className="text-xs font-bold text-slate-400 uppercase">
                       DESCRIPTION
                     </label>
                     <textarea
@@ -798,14 +812,14 @@ export default function CitizenPortal() {
                           description: e.target.value,
                         })
                       }
-                      className="w-full p-3 border rounded-lg text-slate-800 bg-white h-24"
+                      className="w-full p-2 border rounded-lg text-slate-800 bg-white h-20 text-sm"
                     ></textarea>
                   </div>
 
                   {/* Missing info / Clarifications */}
                   {missingInfo && missingInfo.length > 0 && (
-                    <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
-                      <div className="text-sm font-bold text-yellow-800 mb-2">
+                    <div className="p-2 bg-yellow-50 border border-yellow-100 rounded-lg">
+                      <div className="text-sm font-bold text-yellow-800 mb-1">
                         Missing information detected
                       </div>
                       <ul className="text-xs text-slate-600 space-y-1 mb-2">
@@ -824,10 +838,10 @@ export default function CitizenPortal() {
                               [m]: e.target.value,
                             })
                           }
-                          className="w-full mb-2 p-2 border rounded"
+                          className="w-full mb-1 p-2 border rounded text-sm"
                         />
                       ))}
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 mt-2">
                         <button
                           type="button"
                           onClick={async () => {
@@ -945,7 +959,7 @@ export default function CitizenPortal() {
                               setIsLoading(false);
                             }
                           }}
-                          className="px-4 py-2 bg-blue-600 text-white rounded"
+                          className="px-3 py-1 bg-blue-600 text-white rounded text-sm"
                         >
                           Send Clarification
                         </button>
@@ -953,7 +967,7 @@ export default function CitizenPortal() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3 items-center">
+                  <div className="grid grid-cols-2 gap-2 items-center">
                     <div className="text-sm text-slate-500">
                       Estimated SLA:{" "}
                       <strong>{sampleTicketProgress.slaHours} hrs</strong>
@@ -976,6 +990,39 @@ export default function CitizenPortal() {
                           if (fid) localStorage.setItem("last_form_id", fid);
                           if (sessionId)
                             localStorage.setItem("last_session_id", sessionId);
+
+                          // Fetch live status from backend and update progress
+                          if (fid) {
+                            try {
+                              const statusRes = await grievanceAPI.getStatus(
+                                fid
+                              );
+                              const s = (statusRes && statusRes.data) || {};
+                              setTicketProgress({
+                                steps: sampleTicketProgress.steps,
+                                current:
+                                  typeof s.progress === "number"
+                                    ? s.progress
+                                    : 0,
+                                slaHours: sampleTicketProgress.slaHours,
+                              });
+                              setTicketStatus(
+                                s.status || d.status || "Submitted"
+                              );
+                              setTicketStatusMessage(s.message || "");
+                              // also keep status in submittedFormResult for UI
+                              setSubmittedFormResult((prev) => ({
+                                ...(prev || {}),
+                                status: s.status || prev?.status,
+                              }));
+                            } catch (e) {
+                              console.debug(
+                                "Failed to fetch status after submit",
+                                e
+                              );
+                            }
+                          }
+
                           setServerMessage(d.message || "Submitted");
                           setStep(3);
                         } catch (err) {
@@ -987,7 +1034,7 @@ export default function CitizenPortal() {
                           setServerMessage(String(msg));
                         }
                       }}
-                      className="w-full bg-orange-600 text-white py-3 rounded-xl font-bold"
+                      className="w-full bg-orange-600 text-white py-2 rounded-xl font-bold text-sm"
                     >
                       Confirm & Submit
                     </button>
@@ -995,7 +1042,6 @@ export default function CitizenPortal() {
                 </form>
               </div>
             )}
-
             {/* Step 3: Success */}
             {step === 3 && (
               <div className="flex-1 flex flex-col items-center justify-center text-center">
@@ -1007,40 +1053,56 @@ export default function CitizenPortal() {
                 </h2>
                 <p className="text-slate-500 mt-2">
                   Ticket ID:{" "}
-                  {submittedFormResult?.form_id || sampleTicketProgress.id}
+                  {submittedFormResult?.form_id ||
+                    ticketProgress?.id ||
+                    sampleTicketProgress.id}
                 </p>
                 <p className="text-sm text-slate-500 mt-2">
                   Status:{" "}
-                  <strong>{submittedFormResult?.status || "Submitted"}</strong>
+                  <strong>
+                    {submittedFormResult?.status || ticketStatus || "Submitted"}
+                  </strong>
                 </p>
 
                 <div className="w-full max-w-md mt-6">
                   <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-                    {sampleTicketProgress.steps.map((s, i) => (
-                      <div
-                        key={s}
-                        className={`flex-1 text-center ${
-                          i <= sampleTicketProgress.current
-                            ? "text-slate-900 font-bold"
-                            : ""
-                        }`}
-                      >
-                        {s}
-                      </div>
-                    ))}
+                    {(ticketProgress?.steps || sampleTicketProgress.steps).map(
+                      (s, i) => (
+                        <div
+                          key={s}
+                          className={`flex-1 text-center ${
+                            i <=
+                            (ticketProgress?.current ??
+                              sampleTicketProgress.current)
+                              ? "text-slate-900 font-bold"
+                              : ""
+                          }`}
+                        >
+                          {s}
+                        </div>
+                      )
+                    )}
                   </div>
                   <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
                     <div
                       className="absolute left-0 top-0 bottom-0 bg-orange-500 rounded-full"
                       style={{
                         width: `${
-                          ((sampleTicketProgress.current + 1) /
-                            sampleTicketProgress.steps.length) *
+                          (((ticketProgress?.current ??
+                            sampleTicketProgress.current) +
+                            1) /
+                            (ticketProgress?.steps?.length ||
+                              sampleTicketProgress.steps.length)) *
                           100
                         }%`,
                       }}
                     />
                   </div>
+                  {ticketStatusMessage && (
+                    <div className="mt-2 text-xs text-slate-500">
+                      {ticketStatusMessage}
+                    </div>
+                  )}
                 </div>
 
                 <button

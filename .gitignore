@@ -48,7 +48,8 @@ lerna-debug.log*
 # OS
 Thumbs.db
 
-resolution_uploads/# Logs
+resolution_uploads/
+# Logs
 logs
 *.log
 npm-debug.log*
