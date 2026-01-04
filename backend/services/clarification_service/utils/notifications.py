@@ -5,6 +5,7 @@ import logging
 import asyncio
 from email.message import EmailMessage
 from typing import Optional
+from motor.motor_asyncio import AsyncIOMotorClient
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +19,44 @@ class ClarificationNotificationService:
         self.smtp_from = os.getenv("SMTP_FROM", self.smtp_user)
         self.smtp_use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() in ("1", "true", "yes")
         self.smtp_starttls = os.getenv("SMTP_STARTTLS", "true").lower() in ("1", "true", "yes")
+        # Add database connections
+        mongo_uri = os.getenv("MONGO_URI")
+        self.grievance_client = AsyncIOMotorClient(mongo_uri)
+        self.grievance_db = self.grievance_client[os.getenv("DATABASE_NAME", "grievance_db")]
+        self.user_client = AsyncIOMotorClient(mongo_uri)
+        self.user_db = self.user_client["user_db"]
+
+    async def get_citizen_email(self, grievance_id: str) -> Optional[str]:
+        """Fetch citizen email by querying grievance_forms for user_id, then users for email."""
+        grievance_collection = self.grievance_db["grievance_forms"]
+        grievance = await grievance_collection.find_one({"_id": grievance_id})
+        if not grievance:
+            logger.warning(f"Grievance {grievance_id} not found")
+            return None
+        user_id = grievance.get("user_id")
+        if not user_id:
+            logger.warning(f"No user_id found for grievance {grievance_id}")
+            return None
+        user_collection = self.user_db["users"]
+        user = await user_collection.find_one({"_id": user_id})
+        if not user:
+            logger.warning(f"User {user_id} not found")
+            return None
+        return user.get("email")
 
     async def send_clarification_email(
         self,
-        to_email: str,
         grievance_id: str,
         officer_id: str,
         message: str,
         resolution_id: Optional[str] = None
     ) -> bool:
         """Send clarification email to citizen. Returns True on success, False on failure."""
+        # Fetch email using the procedure
+        to_email = await self.get_citizen_email(grievance_id)
+        if not to_email:
+            logger.error(f"Could not fetch email for grievance {grievance_id}")
+            return False
         subject = f"Clarification requested for grievance {grievance_id}"
         resolution_line = f"Resolution ID: {resolution_id}\n" if resolution_id else ""
         body = f"""Dear Citizen,

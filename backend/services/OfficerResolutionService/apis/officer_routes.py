@@ -232,8 +232,26 @@ async def get_ticket_counts(current_officer: dict = Depends(get_current_officer)
     """Get total counts of tickets by status for the officer"""
     officer_service = OfficerService()  # Instantiate here
     try:
-        result = await officer_service.get_ticket_counts(current_officer["sub"])
-        return TicketCountsResponse(**result)
+        # Workaround: Fetch dashboard data and count statuses manually
+        dashboard_data = await officer_service.get_officer_dashboard(current_officer["sub"])
+        
+        # Initialize counts
+        counts = {
+            "assigned": 0,
+            "in_progress": 0,
+            "completed": 0,
+            "clarifications": 0
+        }
+        
+        # Count statuses from dashboard tickets
+        for item in dashboard_data:
+            ticket = getattr(item, 'ticket', None)
+            if ticket:
+                status = getattr(ticket, 'status', '').lower()
+                if status in counts:
+                    counts[status] += 1
+        
+        return TicketCountsResponse(**counts)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
