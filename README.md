@@ -35,12 +35,12 @@ Byteblazers
 
 ## 4️⃣ 2-Minute Demonstration Video Link
 
-[Demonstration Video](#) _(https://drive.google.com/file/d/1ArKD4mOPePdYk0J_3rkWfVnKfTtnEtVC/view)_
-(Video has cuts and is in 2x Speed for covering all the features in 2 mins)
+[**Watch Demonstration Video**](https://drive.google.com/file/d/1ArKD4mOPePdYk0J_3rkWfVnKfTtnEtVC/view)
+*(Note: Video contains cuts and is played at 2x speed to cover all features within 2 minutes)*
 
 ## 5️⃣ PPT Link
 
-[Presentation Link](#) _(https://www.canva.com/design/DAG9bNV6rjE/wbwLyFcOsuLtx-y6SVkT7w/edit?utm_content=DAG9bNV6rjE&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)_
+[**View Presentation (Canva)**](https://www.canva.com/design/DAG9bNV6rjE/wbwLyFcOsuLtx-y6SVkT7w/edit?utm_content=DAG9bNV6rjE&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
 
 ## ✅ Project Overview
 
@@ -140,27 +140,21 @@ Team Byteblazers presents a cutting-edge grievance management platform developed
 ## ✅ Relevant Screenshots
 
 ### Citizen Portal
-
-![Current Grievance](<img width="1919" height="863" alt="image" src="https://github.com/user-attachments/assets/cc86d266-c91f-4b6e-a0cb-c6d224adbb09" />)
+![Current Grievance](https://github.com/user-attachments/assets/cc86d266-c91f-4b6e-a0cb-c6d224adbb09)
 
 ### Officer Dashboard
-
-![Officer Dashboard](<img width="1919" height="873" alt="image" src="https://github.com/user-attachments/assets/676a9c07-96f7-4ffd-9471-61d6c674055b" />)
+![Officer Dashboard](https://github.com/user-attachments/assets/676a9c07-96f7-4ffd-9471-61d6c674055b)
 
 ### Clarification Portal
-![User CLarifies the Officer](<img width="1919" height="875" alt="image" src="https://github.com/user-attachments/assets/0559eff2-127f-4192-a4f3-44af002c1ed3" />)
-
+![Clarification Portal](https://github.com/user-attachments/assets/0559eff2-127f-4192-a4f3-44af002c1ed3)
 
 ### Grievance Submission
-
-![Grievance Submission](<img width="1919" height="852" alt="image" src="https://github.com/user-attachments/assets/ba54d6e3-9add-40a2-96cd-aacb7493fdf7" />)
+![Grievance Submission](https://github.com/user-attachments/assets/ba54d6e3-9add-40a2-96cd-aacb7493fdf7)
 
 ### Feedback Form
-
-![Feedback Form](<img width="1918" height="875" alt="image" src="https://github.com/user-attachments/assets/0c3a3f40-c84e-48ff-be7c-4dda158733da" />)
+![Feedback Form](https://github.com/user-attachments/assets/0c3a3f40-c84e-48ff-be7c-4dda158733da)
 
 ### Admin Portal
-
-![Admin Portal](<img width="1919" height="870" alt="image" src="https://github.com/user-attachments/assets/ab3c0713-64ba-4ee0-bd7b-90b174d44be4" />)
+![Admin Portal](https://github.com/user-attachments/assets/ab3c0713-64ba-4ee0-bd7b-90b174d44be4)
 
 ---
