@@ -4,12 +4,20 @@ from ..services.officer_service import OfficerService
 from ..schemas.requests import UpdateStatusRequest, ClarificationRequest, ResolveTicketRequest
 from ..schemas.responses import DashboardView, StatusUpdateResponse, ClarificationResponse, ResolutionResponse, ClarificationsListResponse, TicketCountsResponse
 from ..utils.file_handler import file_handler
+from ..utils.notifications import officer_notification_service
 from ...superuser_services.utils.auth import get_current_user, require_role
+import logging
+import os
+import asyncio
+import pymongo
+from bson import ObjectId
 
 router = APIRouter(prefix="/officer", tags=["Officer Resolution"])
 
 # Define officer role requirement
 get_current_officer = require_role(["NODAL_OFFICER", "SUPER_ADMIN", "DEPT_ADMIN"])  # Use actual roles: NODAL_OFFICER for officers
+
+logger = logging.getLogger(__name__)
 
 @router.get("/dashboard", response_model=List[DashboardView])
 async def get_officer_dashboard(current_officer: dict = Depends(get_current_officer)):
@@ -65,7 +73,48 @@ async def request_clarification(
             grievance_id=request.grievance_id,
             message=request.message
         )
-        
+
+        # Try to notify citizen by email; do not fail if email send fails
+        citizen_email = None
+        if isinstance(result, dict):
+            citizen_email = result.get("citizen_email") or result.get("email") or result.get("user_email")
+        # If still missing, try to locate user_id from the officer dashboard and fetch from userdb
+        if not citizen_email:
+            try:
+                # try to find the ticket in the officer dashboard
+                tickets = await officer_service.get_officer_dashboard(current_officer["sub"])
+                ticket = next((t for t in tickets if getattr(t.ticket, "grievance_id", None) == request.grievance_id), None)
+                found_user_id = None
+                if ticket:
+                    tdata = getattr(ticket, "ticket", None)
+                    if isinstance(tdata, dict):
+                        found_user_id = tdata.get("user_id") or tdata.get("owner_id") or tdata.get("citizen_id")
+                    else:
+                        found_user_id = getattr(tdata, "user_id", None) or getattr(tdata, "owner_id", None) or getattr(tdata, "citizen_id", None)
+                if found_user_id:
+                    fetched = await _fetch_user_email_by_id(found_user_id)
+                    if fetched:
+                        citizen_email = fetched
+                        logger.info(f"Found citizen email from userdb for grievance {request.grievance_id}")
+            except Exception as e:
+                logger.exception(f"Error while attempting to find citizen email for grievance {request.grievance_id}: {e}")
+        if citizen_email:
+             try:
+                 sent = await officer_notification_service.send_clarification_email(
+                     to_email=citizen_email,
+                     grievance_id=request.grievance_id,
+                     officer_id=current_officer["sub"],
+                     message=request.message
+                 )
+                 if sent:
+                     logger.info(f"Clarification email sent to {citizen_email} for {request.grievance_id}")
+                 else:
+                     logger.error(f"Failed to send clarification email to {citizen_email} for {request.grievance_id}")
+             except Exception as e:
+                 logger.exception(f"Error sending clarification email for {request.grievance_id}: {e}")
+        else:
+            logger.warning(f"No citizen email found for grievance {request.grievance_id}; skipping clarification email")
+
         return ClarificationResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -102,6 +151,47 @@ async def resolve_ticket(
             closing_remark=closing_remark,
             resolution_photos=photo_paths
         )
+
+        # Try to notify citizen by email; do not fail if email send fails
+        citizen_email = None
+        if isinstance(result, dict):
+            citizen_email = result.get("citizen_email") or result.get("email") or result.get("user_email")
+        # If missing, try to find user_id via officer dashboard and fetch email from userdb
+        if not citizen_email:
+            try:
+                tickets = await officer_service.get_officer_dashboard(current_officer["sub"])
+                ticket = next((t for t in tickets if getattr(t.ticket, "grievance_id", None) == grievance_id), None)
+                found_user_id = None
+                if ticket:
+                    tdata = getattr(ticket, "ticket", None)
+                    if isinstance(tdata, dict):
+                        found_user_id = tdata.get("user_id") or tdata.get("owner_id") or tdata.get("citizen_id")
+                    else:
+                        found_user_id = getattr(tdata, "user_id", None) or getattr(tdata, "owner_id", None) or getattr(tdata, "citizen_id", None)
+                if found_user_id:
+                    fetched = await _fetch_user_email_by_id(found_user_id)
+                    if fetched:
+                        citizen_email = fetched
+                        logger.info(f"Found citizen email from userdb for grievance {grievance_id}")
+            except Exception as e:
+                logger.exception(f"Error while attempting to find citizen email for grievance {grievance_id}: {e}")
+        if citizen_email:
+             try:
+                 sent = await officer_notification_service.send_resolution_email(
+                     to_email=citizen_email,
+                     grievance_id=grievance_id,
+                     officer_id=current_officer["sub"],
+                     action_taken=action_taken,
+                     closing_remark=closing_remark
+                 )
+                 if sent:
+                     logger.info(f"Resolution email sent to {citizen_email} for {grievance_id}")
+                 else:
+                     logger.error(f"Failed to send resolution email to {citizen_email} for {grievance_id}")
+             except Exception as e:
+                 logger.exception(f"Error sending resolution email for {grievance_id}: {e}")
+        else:
+            logger.warning(f"No citizen email found for grievance {grievance_id}; skipping resolution email")
         
         return ResolutionResponse(**result)
     except ValueError as e:
@@ -213,3 +303,38 @@ async def resume_ticket_work(
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "OfficerResolutionService"}
+
+def _sync_find_user_email(user_id: str):
+    """Synchronous DB lookup for a user's email; run in a thread via asyncio.to_thread."""
+    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGO_CONNECTION_STRING")
+    mongo_db = os.getenv("MONGO_DB", "admin")
+    if not mongo_uri:
+        raise RuntimeError("MONGO_URI not configured")
+
+    client = pymongo.MongoClient(mongo_uri)
+    try:
+        db = client[mongo_db]
+        # try common collections and id fields
+        for col_name in ("users", "user_profiles", "citizens"):
+            col = db.get_collection(col_name)
+            queries = [{"sub": user_id}, {"user_id": user_id}, {"id": user_id}]
+            try:
+                queries.append({"_id": ObjectId(user_id)})
+            except Exception:
+                pass
+            for q in queries:
+                doc = col.find_one(q)
+                if doc:
+                    for f in ("email", "user_email", "email_primary", "contact_email"):
+                        if doc.get(f):
+                            return doc.get(f)
+        return None
+    finally:
+        client.close()
+
+async def _fetch_user_email_by_id(user_id: str):
+    try:
+        return await asyncio.to_thread(_sync_find_user_email, user_id)
+    except Exception as e:
+        logger.exception(f"Error fetching user email from userdb for {user_id}: {e}")
+        return None

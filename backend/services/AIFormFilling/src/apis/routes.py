@@ -6,10 +6,16 @@ import shutil
 import json
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
+from bson import ObjectId
 
 from ..db.connection import get_collection
 from ..agents.form_extraction_agent import FormExtractionAgent
 from shared.utils.auth_middleware import get_current_user
+from ..utils.notifications import ai_notification_service
+from services.user_service.src.db.connection import get_users_collection
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Grievance Form"])
 
@@ -249,6 +255,37 @@ async def get_session(session_id: str, user_id: str = Depends(get_current_user))
         message="Session retrieved successfully"
     )
 
+async def _fetch_user_email_by_id(user_id: str):
+    """Find user's email in the userdb 'users' collection using the user_id (from auth middleware)."""
+    if not user_id:
+        return None
+
+    try:
+        users_col = get_users_collection()
+    except Exception as e:
+        logger.exception(f"Failed to get users collection: {e}")
+        return None
+
+    # Try common id-based queries; prefer querying by ObjectId if possible
+    queries = []
+    try:
+        queries.append({"_id": ObjectId(user_id)})
+    except Exception:
+        pass
+    queries.extend([{"user_id": user_id}, {"id": user_id}, {"sub": user_id}, {"mobile_number": user_id}])
+
+    for q in queries:
+        try:
+            u = await users_col.find_one(q)
+            if u:
+                for f in ("email", "user_email", "email_primary", "emailAddress"):
+                    if u.get(f):
+                        return u.get(f)
+        except Exception:
+            continue
+
+    return None
+
 @router.post("/submit", response_model=FormResponse)
 async def submit_grievance_form(request: FormSubmissionRequest, user_id: str = Depends(get_current_user)):
     """
@@ -310,7 +347,35 @@ async def submit_grievance_form(request: FormSubmissionRequest, user_id: str = D
             }
         }
     )
-    
+
+    # Try to notify citizen by email with ticket id and summary
+    citizen_email = form_data.get("email") or form_data.get("user_email")
+    if not citizen_email:
+        # attempt to fetch from user DB using user_id (session owner)
+        try:
+            found = await _fetch_user_email_by_id(user_id)
+            if found:
+                citizen_email = found
+                logger.info(f"Found citizen email from userdb for user {user_id}")
+            else:
+                logger.warning(f"No citizen email found in form or userdb for form {form_id}; skipping notification")
+        except Exception as e:
+            logger.exception(f"Error while fetching citizen email from userdb for {form_id}: {e}")
+
+    if citizen_email:
+        try:
+            sent = await ai_notification_service.send_ticket_email(
+                to_email=citizen_email,
+                form_id=form_id,
+                form_data=form_data
+            )
+            if sent:
+                logger.info(f"Submission notification sent to {citizen_email} for {form_id}")
+            else:
+                logger.error(f"Failed to send submission notification to {citizen_email} for {form_id}")
+        except Exception as e:
+            logger.exception(f"Error when sending submission notification for {form_id}: {e}")
+
     return FormResponse(
         form_id=form_id,
         status="submitted",

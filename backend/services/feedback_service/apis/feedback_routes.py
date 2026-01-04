@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 from bson import ObjectId, Decimal128
 import base64
+import asyncio
 
 from ..schemas.feedback_schema import (
     FeedbackSubmissionSchema, 
@@ -16,6 +17,7 @@ from ..schemas.feedback_schema import (
 )
 from ..db.feedback_db import feedback_db
 from ..utils.conflict_resolver import conflict_resolver
+from ..utils.sentiment_analyzer import analyze_sentiment  # new import
 
 # Import get_current_user for authentication
 from services.user_service.src.api.user_routes import get_current_user
@@ -112,11 +114,21 @@ async def submit_feedback(
             "user_comment": feedback_schema.user_comment,
             "citizen_evidence_path": evidence_path
         }
-        
-        # Process conflict resolution
+
+        # Analyze sentiment of the user comment (run in thread if analyzer is sync)
+        if feedback_schema.user_comment:
+            sentiment = await asyncio.to_thread(analyze_sentiment, feedback_schema.user_comment)
+        else:
+            sentiment = {"label": "neutral", "score": 0.5, "explanation": "no comment provided"}
+
+        # attach sentiment to data
+        feedback_data_dict["sentiment"] = sentiment
+
+        # Process conflict resolution (pass sentiment)
         resolution_result = await conflict_resolver.process_feedback(
             feedback_data_dict, 
-            evidence_path
+            evidence_path,
+            sentiment=sentiment
         )
         
         if "error" in resolution_result:
@@ -137,7 +149,8 @@ async def submit_feedback(
             "action": resolution_result["action"],
             "conflict_detected": resolution_result["conflict_detected"],
             "escalated": resolution_result["escalated"],
-            "message": resolution_result.get("message", "Feedback submitted successfully")
+            "message": resolution_result.get("message", "Feedback submitted successfully"),
+            "sentiment": sentiment
         }
         
     except json.JSONDecodeError:

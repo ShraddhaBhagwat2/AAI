@@ -2,6 +2,11 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from services.feedback_service.models.feedback_model import RatingModel, ResolutionStatus
 
+class SentimentSchema(BaseModel):
+    label: str
+    score: float
+    explanation: Optional[str] = None
+
 class FeedbackSubmissionSchema(BaseModel):
     form_id: str
     ratings: RatingModel
@@ -19,6 +24,7 @@ class FeedbackResponseSchema(BaseModel):
     conflict_detected: bool
     escalated: bool
     created_at: str
+    sentiment: Optional[SentimentSchema] = None  # new field
 
 class PendingFeedbackSchema(BaseModel):
     form_id: str

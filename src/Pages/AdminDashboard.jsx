@@ -1250,7 +1250,40 @@ export default function AdminDashboard() {
                       {feedbackDetail.ratings?.quality || "-"}
                       /5
                     </div>
+
+                    {/* Sentiment display */}
+                    <div className="ml-6 text-sm">Sentiment:</div>
+                    <div className="font-semibold text-slate-800">
+                      {feedbackDetail.sentiment?.label
+                        ? feedbackDetail.sentiment.label
+                            .charAt(0)
+                            .toUpperCase() +
+                          feedbackDetail.sentiment.label.slice(1)
+                        : "-"}
+                      {feedbackDetail.sentiment?.score != null && (
+                        <span className="ml-2 text-xs text-slate-500">
+                          (
+                          {Math.round(
+                            (feedbackDetail.sentiment.score || 0) * 100
+                          )}
+                          % negative)
+                        </span>
+                      )}
+                    </div>
                   </div>
+
+                  {/* show explanation if present */}
+                  {feedbackDetail.sentiment?.explanation && (
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase">
+                        Sentiment Note
+                      </div>
+                      <div className="text-slate-800">
+                        {feedbackDetail.sentiment.explanation}
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <div className="text-xs text-slate-500 uppercase">
                       Comment

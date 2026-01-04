@@ -626,10 +626,10 @@ export default function CitizenPortal() {
                             window.SpeechRecognition ||
                             window.webkitSpeechRecognition;
                           if (!SpeechRecognition) {
+                            // Don't auto-submit when mic isn't available — just inform user.
                             setServerMessage(
-                              "Speech recognition not supported. Using typed text."
+                              "Speech recognition not supported. Type your grievance or use the Send button."
                             );
-                            await startSessionWithText(textInput || "");
                             return;
                           }
                           if (recognitionRef.current) {
@@ -644,11 +644,14 @@ export default function CitizenPortal() {
                             recog.lang = "en-US";
                             recog.interimResults = false;
                             recog.maxAlternatives = 1;
-                            recog.onresult = async (event) => {
+                            recog.onresult = (event) => {
+                              // Only populate the textarea — do not auto-submit.
                               const transcript =
                                 event.results?.[0]?.[0]?.transcript || "";
                               setTextInput(transcript);
-                              await startSessionWithText(transcript);
+                              setServerMessage(
+                                "Recording captured. Review the text and click Send to submit."
+                              );
                             };
                             recog.onerror = (ev) => {
                               console.error("Speech error", ev);

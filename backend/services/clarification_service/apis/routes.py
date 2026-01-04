@@ -1,13 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from bson import ObjectId
-from ..db.connection import get_grievance_forms_collection, get_clarifications_collection
+from pydantic import BaseModel
+from ..db.connection import get_grievance_forms_collection, get_clarifications_collection, get_collection
 from ..models.clarification import Clarification
 from ..schema.clarification import ClarificationResponse, RespondToClarificationRequest
 from shared.utils.auth_middleware import get_current_user
+from ..utils.notifications import clarification_notification_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# New request model for officers creating a clarification
+class CreateClarificationRequest(BaseModel):
+    grievance_id: str
+    resolution_id: Optional[str] = None
+    message: str
 
 # expose both "/clarifications" (current) and root "/" so GET /clarifications works
 @router.get("/", response_model=ClarificationResponse)
@@ -69,3 +80,95 @@ async def respond_to_clarification(
     )
     
     return {"message": "Response submitted successfully"}
+
+async def _fetch_user_email_by_id(user_id: str):
+	"""Try to find user email by common id fields across common user collections."""
+	for col_name in ("users", "user_profiles", "citizens"):
+		users_col = get_collection(col_name)
+		queries = [{"sub": user_id}, {"user_id": user_id}, {"id": user_id}]
+		try:
+			queries.append({"_id": ObjectId(user_id)})
+		except Exception:
+			pass
+		for q in queries:
+			try:
+				u = await users_col.find_one(q)
+				if u:
+					for f in ("email", "user_email", "email_primary"):
+						if u.get(f):
+							return u.get(f)
+			except Exception:
+				continue
+	return None
+
+# expose both "/" (current) and "/clarifications" so POST /clarifications works for creation
+@router.post("/", status_code=201)
+@router.post("/clarifications", status_code=201)
+async def create_clarification(
+    request: CreateClarificationRequest,
+    current_user: str = Depends(get_current_user)
+):
+    """Officer creates a clarification for a grievance; citizen is emailed the clarification."""
+    grievance_col = get_grievance_forms_collection()
+    clarification_col = get_clarifications_collection()
+
+    # Verify grievance exists
+    grievance = await grievance_col.find_one({"form_id": request.grievance_id})
+    if not grievance:
+        raise HTTPException(status_code=404, detail="Grievance not found")
+
+    # Build clarification document
+    doc = {
+        "resolution_id": request.resolution_id,
+        "grievance_id": request.grievance_id,
+        "officer_id": current_user,
+        "message": request.message,
+        "requested_at": datetime.utcnow(),
+        "citizen_response": None,
+        "responded_at": None
+    }
+
+    try:
+        await clarification_col.insert_one(doc)
+    except Exception as e:
+        logger.error(f"Failed to create clarification: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create clarification")
+
+    # Try to find citizen email from grievance document
+    citizen_email = grievance.get("user_email") or grievance.get("email")
+    if not citizen_email:
+        # try to fetch from userdb using grievance.user_id
+        gr_user_id = grievance.get("user_id")
+        if gr_user_id:
+            try:
+                found = await _fetch_user_email_by_id(gr_user_id)
+                if found:
+                    citizen_email = found
+                    logger.info(f"Found citizen email from userdb for grievance {request.grievance_id}")
+                else:
+                    logger.warning(f"No citizen email found on grievance {request.grievance_id} or userdb; skipping email notification")
+                    return {"message": "Clarification created (no email found to notify citizen)"}
+            except Exception as e:
+                logger.exception(f"Error fetching citizen email for grievance {request.grievance_id}: {e}")
+                return {"message": "Clarification created but error occurred fetching email"}
+        else:
+            logger.warning(f"No citizen email or user_id present on grievance {request.grievance_id}; skipping email notification")
+            return {"message": "Clarification created (no email found to notify citizen)"}
+
+    # Send email notification (do not fail the request if email send fails; just log)
+    try:
+        sent = await clarification_notification_service.send_clarification_email(
+            to_email=citizen_email,
+            grievance_id=request.grievance_id,
+            officer_id=current_user,
+            message=request.message,
+            resolution_id=request.resolution_id
+        )
+        if sent:
+            return {"message": "Clarification created and citizen notified via email"}
+        else:
+            logger.error(f"Clarification created but failed to send email to {citizen_email}")
+            return {"message": "Clarification created but failed to send email"}
+    except Exception as e:
+        logger.error(f"Error sending clarification email for grievance {request.grievance_id}: {e}")
+        return {"message": "Clarification created but error occurred sending email"}

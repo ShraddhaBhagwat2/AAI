@@ -1,8 +1,12 @@
 import httpx
+import re
+import logging
 from typing import Dict, Optional
 from services.AIAnalysis.shared.schemas import GrievanceData, RoutingResult
 from services.AIAnalysis.utils.config import settings
 from services.superuser_services.db.connection import get_database as get_superuser_db
+
+logger = logging.getLogger(__name__)
 
 class SmartRoutingAgent:
     def __init__(self):
@@ -64,26 +68,35 @@ class SmartRoutingAgent:
         area_ward_name: str
     ) -> Dict[str, str]:
         """
-        Query SuperUser DB staff_users collection to find the nodal officer
+        Query SuperUser DB staff_users collection to find the nodal officer.
+        Uses fuzzy (partial, case-insensitive) matching on ward name.
         """
         try:
             db = get_superuser_db()  # Synchronous call
             collection = db.staff_users
-            
-            # Query for nodal officer with matching dept and ward
-            officer_doc = await collection.find_one({
+
+            # Build base query
+            query = {
                 "role": "NODAL_OFFICER",
-                "metadata.dept": department,
-                "metadata.ward": area_ward_name
-            })
-            
+                "metadata.dept": department
+            }
+
+            # Add fuzzy ward match if provided (case-insensitive partial match)
+            if area_ward_name and area_ward_name.strip():
+                ward_term = area_ward_name.strip()
+                ward_regex = {"$regex": f".*{re.escape(ward_term)}.*", "$options": "i"}
+                query["metadata.ward"] = ward_regex
+
+            # Query for nodal officer with matching dept and (fuzzy) ward
+            officer_doc = await collection.find_one(query)
+
             if officer_doc:
                 return {
-                    "officer_id": officer_doc["_id"],
-                    "officer_name": officer_doc["full_name"]
+                    "officer_id": str(officer_doc.get("_id", "DEFAULT_OFFICER")),
+                    "officer_name": officer_doc.get("full_name", f"{department} - Nodal Officer")
                 }
         except Exception as e:
-            print(f"Error finding nodal officer in DB: {e}")
+            logger.exception("Error finding nodal officer in DB: %s", e)
         
         # Fallback to default officer
         return {
