@@ -14,7 +14,7 @@ load_dotenv()
 class FormExtractionAgent:
     def __init__(self):
         self.llm = ChatMistralAI(
-            model="mistral-large-latest",
+            model="open-mistral-7b",
             mistral_api_key=os.getenv("MISTRAL_API_KEY"),
             temperature=0.1
         )

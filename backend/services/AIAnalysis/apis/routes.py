@@ -13,6 +13,7 @@ from services.AIAnalysis.agents import (
     NotificationDispatcherAgent,
     DocumentAnalysisAgent
 )
+from services.civic_operations import register_complaint
 
 router = APIRouter()
 
@@ -158,6 +159,18 @@ async def run_analysis_pipeline(grievance: GrievanceData):
         
         # Update grievance form status in AIFormFilling database
         await update_grievance_status(grievance.form_id, status, analysis_result, citizen_message)
+        await register_complaint(
+            grievance.form_id,
+            grievance.model_dump(),
+            {
+                "status": status,
+                "priority_score": analysis_result.priority_score.score,
+                "urgency_level": analysis_result.priority_score.urgency_level,
+                "assigned_department": analysis_result.routing.department,
+                "assigned_officer_id": analysis_result.routing.officer_id,
+                "assigned_officer_name": analysis_result.routing.officer_name,
+            },
+        )
         
         print(f"✅ Analysis pipeline completed for {grievance.form_id}")
         

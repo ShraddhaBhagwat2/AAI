@@ -4,6 +4,7 @@ from bson import ObjectId
 from ..config.database import officer_resolution_db
 from ..models.resolution import ResolutionRecord, TicketStatus, ClarificationRequest
 from ..schemas.responses import DashboardView, TicketOverview, ClarificationsListResponse, ClarificationItem
+from services.civic_operations import update_lifecycle
 
 class OfficerService:
     def __init__(self):
@@ -122,6 +123,11 @@ class OfficerService:
             {"_id": ObjectId(resolution_id)},
             {"$set": update_data} if not progress_note else {"$set": {k: v for k, v in update_data.items() if k != "$push"}, **update_data}
         )
+        await update_lifecycle(
+            grievance_id,
+            str(new_status.value if hasattr(new_status, "value") else new_status),
+            progress_note or f"Officer updated status to {new_status}",
+        )
         
         # TODO: Send notification to citizen
         await self._notify_citizen_status_update(grievance_id, new_status, officer_name=officer_name)
@@ -192,6 +198,7 @@ class OfficerService:
                 }
             }
         )
+        await update_lifecycle(grievance_id, "seeking_info", message)
         
         # TODO: Send notification to citizen via bot
         await self._send_clarification_to_citizen(grievance_id, message, officer_name)
@@ -279,6 +286,13 @@ class OfficerService:
                     "officer_name": officer_name
                 }
             }
+        )
+        await update_lifecycle(
+            grievance_id,
+            "resolved",
+            closing_remark,
+            resolved_at=resolved_at,
+            resolution_photos=resolution_photos,
         )
         
         # TODO: Send resolution notification to citizen

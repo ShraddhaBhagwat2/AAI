@@ -1,5 +1,6 @@
 from typing import Dict, Optional
 from ..db.feedback_db import feedback_db
+from services.civic_operations import verify_resolution
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,11 @@ class ConflictResolver:
             await feedback_db.update_grievance_status(
                 feedback_data["form_id"], 
                 "closed"
+            )
+            await verify_resolution(
+                feedback_data["form_id"],
+                citizen_confirmed=True,
+                comment=feedback_data.get("user_comment", ""),
             )
             return {
                 "conflict_detected": False,

@@ -23,7 +23,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import { adminAPI, feedbackAPI } from "../services/api";
+import { adminAPI, feedbackAPI, civicAPI } from "../services/api";
 import api from "../services/api"; // add this import
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -113,6 +113,9 @@ export default function AdminDashboard() {
   const [feedbackDetail, setFeedbackDetail] = useState(null);
   const [feedbackDetailLoading, setFeedbackDetailLoading] = useState(false);
   const [showFeedbackDetailModal, setShowFeedbackDetailModal] = useState(false);
+  const [civicReport, setCivicReport] = useState(null);
+  const [heatmapPoints, setHeatmapPoints] = useState([]);
+  const [civicLoading, setCivicLoading] = useState(false);
 
   // Fetch users function
   const fetchUsers = async () => {
@@ -165,6 +168,25 @@ export default function AdminDashboard() {
     fetchUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters.dept, filters.ward, filters.role]);
+
+  useEffect(() => {
+    const loadCivicData = async () => {
+      setCivicLoading(true);
+      try {
+        const [reportResponse, heatmapResponse] = await Promise.all([
+          civicAPI.getTransparencyReport(30),
+          civicAPI.getHeatmap(30),
+        ]);
+        setCivicReport(reportResponse.data);
+        setHeatmapPoints(heatmapResponse.data?.points || []);
+      } catch (error) {
+        console.error("Failed to load civic operations data:", error);
+      } finally {
+        setCivicLoading(false);
+      }
+    };
+    loadCivicData();
+  }, []);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -319,6 +341,49 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto p-8">
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">
+                Civic Operations Overview
+              </h2>
+              <p className="text-slate-500">
+                SLA performance, escalations, and issue concentration for the last 30 days
+              </p>
+            </div>
+            {civicLoading && <RefreshCw className="animate-spin text-slate-500" size={18} />}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {[
+              ["Complaints", civicReport?.total_complaints ?? "-"],
+              ["Resolved", civicReport?.resolved_complaints ?? "-"],
+              ["Open", civicReport?.open_complaints ?? "-"],
+              ["Escalated", civicReport?.escalated_complaints ?? "-"],
+              ["Resolution rate", civicReport ? `${civicReport.resolution_rate}%` : "-"],
+            ].map(([label, value]) => (
+              <div key={label} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+                <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+                <div className="text-2xl font-bold text-slate-800 mt-1">{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid md:grid-cols-2 gap-4 mt-4">
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
+              <h3 className="font-bold mb-3">Top civic issues</h3>
+              {(civicReport?.top_issues || []).map((item) => (
+                <div key={item.category} className="flex justify-between text-sm py-1">
+                  <span>{item.category}</span><strong>{item.count}</strong>
+                </div>
+              ))}
+              {!civicReport?.top_issues?.length && <div className="text-sm text-slate-500">No report data yet.</div>}
+            </div>
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
+              <h3 className="font-bold mb-3">Issue heatmap data</h3>
+              <div className="text-3xl font-bold text-orange-600">{heatmapPoints.length}</div>
+              <div className="text-sm text-slate-500 mt-1">geo-tagged issue clusters available for map visualization</div>
+            </div>
+          </div>
+        </section>
         {/* Header */}
         <header className="flex justify-between items-center mb-8">
           <div>

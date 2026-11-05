@@ -79,3 +79,8 @@ dist-ssr
 uploads/
 
 video/
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+.env

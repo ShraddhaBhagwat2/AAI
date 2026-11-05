@@ -5,6 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import asyncio
 
+load_dotenv()
+import os
+key = os.getenv("MISTRAL_API_KEY")
+print(f"DEBUG: Python sees the key as: {key}")
 from services.user_service.src.api.user_routes import router as user_router
 from services.AIFormFilling.src.apis.routes import router as grievance_router
 from services.AIFormFilling.src.db.connection import connect_to_mongo, close_mongo_connection
@@ -26,8 +30,9 @@ from services.clarification_service.apis.routes import router as clarification_r
 
 # Import FeedbackService router
 from services.feedback_service.apis.feedback_routes import router as feedback_router
+from services.civic_routes import router as civic_router
+from services.civic_operations import monitor_slas
 
-load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,6 +45,7 @@ async def lifespan(app: FastAPI):
 
     # Start background worker to monitor grievance submissions
     asyncio.create_task(monitor_grievance_submissions())
+    asyncio.create_task(monitor_slas())
     yield
     # Shutdown
     await close_mongo_connection()  # For grievance service
@@ -78,6 +84,7 @@ app.include_router(clarification_router, prefix="/clarifications", tags=["clarif
 
 # Include FeedbackService router
 app.include_router(feedback_router)
+app.include_router(civic_router)
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,7 +2,7 @@ import axios from "axios";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  "https://matching-mice-flowers-operational.trycloudflare.com";
+  "http://localhost:8000";
 
 // Create axios instance
 const api = axios.create({
@@ -139,6 +139,14 @@ export const feedbackAPI = {
   getFeedbacks: (skip = 0, limit = 50) =>
     api.get(`/feedback/list?skip=${skip}&limit=${limit}`),
   getFeedback: (feedbackId) => api.get(`/feedback/id/${feedbackId}`),
+};
+
+export const civicAPI = {
+  getTransparencyReport: (days = 30) =>
+    api.get(`/civic/reports/transparency?days=${days}`),
+  getHeatmap: (days = 30) => api.get(`/civic/reports/heatmap?days=${days}`),
+  verifyResolution: (formId, data) =>
+    api.post(`/civic/grievances/${formId}/verification`, data),
 };
 
 export default api;

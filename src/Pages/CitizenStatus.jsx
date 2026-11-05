@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Navbar from "../components/Navbar";
 import CitizenNav from "../components/CitizenNav";
-import { grievanceAPI } from "../services/api";
+import { grievanceAPI, civicAPI } from "../services/api";
 
 export default function CitizenStatus() {
   const [grievances, setGrievances] = useState([]);
@@ -9,6 +9,7 @@ export default function CitizenStatus() {
   const [statusData, setStatusData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [verificationMessage, setVerificationMessage] = useState("");
 
   useEffect(() => {
     const fetchGrievances = async () => {
@@ -42,6 +43,20 @@ export default function CitizenStatus() {
         console.error("Error fetching status:", err);
         setError(`Failed to load status: ${err.message}`);
       }
+    }
+  };
+
+  const handleVerification = async (formId, confirmed) => {
+    try {
+      await civicAPI.verifyResolution(formId, {
+        citizen_confirmed: confirmed,
+        comment: confirmed ? "Resolution confirmed by citizen" : "Issue remains unresolved",
+      });
+      setVerificationMessage(confirmed ? "Resolution confirmed." : "The issue was reopened and escalated.");
+      const response = await grievanceAPI.getForms();
+      setGrievances(response.data || []);
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Failed to update resolution verification");
     }
   };
 
@@ -146,10 +161,29 @@ export default function CitizenStatus() {
                       {statusData.message}
                     </div>
                   )}
+                  {statusData?.status === "Resolved" && (
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={() => handleVerification(grievance.form_id, true)}
+                        className="px-3 py-2 bg-emerald-600 text-white rounded"
+                      >
+                        Confirm resolution
+                      </button>
+                      <button
+                        onClick={() => handleVerification(grievance.form_id, false)}
+                        className="px-3 py-2 bg-red-600 text-white rounded"
+                      >
+                        Still unresolved
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           ))
+        )}
+        {verificationMessage && (
+          <div className="mt-4 p-3 bg-emerald-50 text-emerald-700 rounded">{verificationMessage}</div>
         )}
       </div>
     </div>
