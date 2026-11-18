@@ -9,7 +9,7 @@ from services.AIAnalysis.utils.config import settings
 class DocumentAnalysisAgent:
     def __init__(self):
         self.llm = ChatMistralAI(
-            model="mistral-small-latest",  # For text summarization
+            model="open-mistral-7b",  # For text summarization
             mistral_api_key=settings.MISTRAL_API_KEY,
             temperature=0.1
         )

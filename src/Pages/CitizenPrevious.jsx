@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import Navbar from "../components/Navbar";
 import CitizenNav from "../components/CitizenNav";
-import api from "../services/api";
+import api, { buildImageUrl, formatIST } from "../services/api";
 
 export default function CitizenPrevious() {
   const [items, setItems] = useState([]);
@@ -38,23 +38,7 @@ export default function CitizenPrevious() {
   };
 
   const formatDate = (v) => {
-    if (!v) return "-";
-    try {
-      const raw = typeof v === "string" ? v : v?.$date || v;
-      const d = new Date(raw);
-      if (isNaN(d)) return String(v);
-      return d.toLocaleString();
-    } catch {
-      return String(v);
-    }
-  };
-
-  const buildImageUrl = (p) => {
-    if (!p) return null;
-    if (typeof p !== "string") return null;
-    if (p.startsWith("http")) return p;
-    const cleaned = p.replace(/^\.\/?/, "").replace(/\\/g, "/");
-    return `${api.defaults.baseURL.replace(/\/$/, "")}/${cleaned}`;
+    return formatIST(v);
   };
 
   useEffect(() => {

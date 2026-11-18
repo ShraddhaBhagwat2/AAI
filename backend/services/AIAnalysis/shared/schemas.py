@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 class GrievanceData(BaseModel):
@@ -12,6 +12,9 @@ class GrievanceData(BaseModel):
     impacted_population: str
     is_recurring: bool
     document_paths: List[str] = []
+    landmark: Optional[str] = None
+    location_hint: Optional[str] = None
+    geo_coordinates: Optional[Dict[str, float]] = None
 
 class VectorCheckResult(BaseModel):
     is_duplicate: bool
@@ -37,3 +40,4 @@ class AnalysisResult(BaseModel):
     status: str
     analyzed_at: datetime
     document_insights: Optional[str] = None  # Added for extracted document content
+    location_intelligence: Optional[Dict[str, Any]] = None

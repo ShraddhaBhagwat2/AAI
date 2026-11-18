@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends
+import re
 from services.superuser_services.schemas.user_schemas import LoginRequest, LoginResponse, ChangePasswordRequest, UserResponse
 from services.superuser_services.db.repositories.user_repository import user_repository
 from services.superuser_services.utils.auth import auth_utils, get_current_user
@@ -11,8 +12,19 @@ router = APIRouter(prefix="/auth", tags=["Employee Authentication"])
 async def login(login_data: LoginRequest):
     """Authenticate user and return JWT token"""
     try:
-        # Get user by email
-        user = await user_repository.get_user_by_email(login_data.email)
+        # Get user by email or employee ID or phone
+        ident = login_data.email.strip()
+        user = await user_repository.get_user_by_email(ident)
+        if not user:
+            col = user_repository.get_collection()
+            # Try employee_id (exact or case-insensitive) or phone_number
+            doc = await col.find_one({"employee_id": {"$regex": f"^{re.escape(ident)}$", "$options": "i"}})
+            if not doc:
+                doc = await col.find_one({"phone_number": ident})
+            if doc:
+                doc["staff_id"] = doc.pop("_id")
+                from services.superuser_services.models.staff_user import StaffUser
+                user = StaffUser(**doc)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

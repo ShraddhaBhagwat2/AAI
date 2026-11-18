@@ -78,7 +78,7 @@ async def start_grievance_session(
                 file_path = os.path.join(TEMP_DIR, f"{session_id}_{file.filename}")
                 with open(file_path, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
-                document_paths.append(file_path)
+                document_paths.append(file_path.replace("\\", "/"))
     
     # Build additional context from file paths (for agent)
     additional_context = ""
@@ -88,6 +88,49 @@ async def start_grievance_session(
     # Extract data using the agent
     extracted_data = await agent.extract_from_text(text, additional_context)
     
+    # Normalize category to strict municipal departments
+    VALID_CATEGORIES = {"Sanitation", "Water Supply", "Electricity", "Roads", "Drainage", "Public Safety"}
+    raw_cat = str(extracted_data.get("category", "")).strip()
+    if raw_cat not in VALID_CATEGORIES:
+        lowered = f"{raw_cat} {text}".lower()
+        if any(w in lowered for w in ["garbage", "dump", "trash", "waste", "smell", "sanitation", "clean", "sweeper", "dustbin", "environment", "animal", "health"]):
+            extracted_data["category"] = "Sanitation"
+        elif any(w in lowered for w in ["water", "leak", "pipe", "tap", "supply"]):
+            extracted_data["category"] = "Water Supply"
+        elif any(w in lowered for w in ["drain", "sewer", "gutter", "overflow", "manhole"]):
+            extracted_data["category"] = "Drainage"
+        elif any(w in lowered for w in ["light", "power", "electric", "current", "wire", "pole", "transformer"]):
+            extracted_data["category"] = "Electricity"
+        elif any(w in lowered for w in ["road", "pothole", "tar", "footpath", "highway", "traffic"]):
+            extracted_data["category"] = "Roads"
+        elif any(w in lowered for w in ["safety", "crime", "stray", "police", "danger", "hazard"]):
+            extracted_data["category"] = "Public Safety"
+        else:
+            extracted_data["category"] = "Sanitation"
+    
+    # Synthesize unified location and description fields for client UI
+    loc_components = [
+        extracted_data.get("landmark"),
+        extracted_data.get("location_hint"),
+        extracted_data.get("area_ward_name")
+    ]
+    loc_combined = ", ".join([str(c).strip() for c in loc_components if c and str(c).strip() and str(c).lower() not in {"none", "null", "unknown", "n/a"}])
+    if not extracted_data.get("area_ward_name"):
+        text_lower = f"{text}".lower()
+        try:
+            from services.AIAnalysis.agents.location_intelligence import MUNICIPAL_GAZETTEER
+            for key, info in MUNICIPAL_GAZETTEER.items():
+                if key in text_lower:
+                    extracted_data["area_ward_name"] = info["ward"]
+                    if not loc_combined:
+                        loc_combined = info["ward"]
+                    break
+        except Exception:
+            pass
+
+    extracted_data["location"] = loc_combined or extracted_data.get("area_ward_name") or extracted_data.get("landmark") or ""
+    extracted_data["description"] = extracted_data.get("full_description") or text
+
     # Check for errors
     if "error" in extracted_data:
         missing_info = extracted_data.get("missing_info", ["all fields"])
@@ -179,6 +222,16 @@ async def provide_clarification(request: ClarificationRequest, user_id: str = De
     updated_data = {**session["extracted_data"]}
     updated_fields = clarification_result.get("updated_fields", {})
     updated_data.update(updated_fields)
+
+    # Re-synthesize location and description
+    loc_components = [
+        updated_data.get("landmark"),
+        updated_data.get("location_hint"),
+        updated_data.get("area_ward_name")
+    ]
+    loc_clean = ", ".join([str(c).strip() for c in loc_components if c and str(c).strip() and str(c).lower() not in {"none", "null", "unknown", "n/a"}])
+    updated_data["location"] = loc_clean or updated_data.get("area_ward_name") or updated_data.get("landmark") or updated_data.get("location", "")
+    updated_data["description"] = updated_data.get("full_description") or updated_data.get("description", "")
     
     # Update missing info and questions
     still_missing = clarification_result.get("still_missing", [])
@@ -307,6 +360,21 @@ async def submit_grievance_form(request: FormSubmissionRequest, user_id: str = D
     # Prepare final form data
     form_data = {**session["extracted_data"]}
     
+    # Flatten any nested category dictionaries if present
+    for k, v in list(form_data.items()):
+        if isinstance(v, dict) and any(cat in k.upper() for cat in ["CATEGORY", "SPATIAL", "EVIDENCE", "METADATA"]):
+            for sub_k, sub_v in v.items():
+                if sub_k not in form_data or not form_data[sub_k]:
+                    form_data[sub_k] = sub_v
+
+    # Ensure full_description is populated
+    if not form_data.get("full_description"):
+        form_data["full_description"] = (
+            form_data.get("description")
+            or (form_data.get("CATEGORY_3") or {}).get("full_description")
+            or session.get("original_text", "")
+        )
+
     # Remove agent metadata from form data
     form_data.pop("missing_info", None)
     form_data.pop("clarification_questions", None)
@@ -316,6 +384,12 @@ async def submit_grievance_form(request: FormSubmissionRequest, user_id: str = D
     # Apply user edits if provided
     if request.edits:
         form_data.update(request.edits)
+    
+    # Ensure spatial and description fields are synchronized
+    if form_data.get("location") and not form_data.get("area_ward_name"):
+        form_data["area_ward_name"] = form_data["location"]
+    if form_data.get("description") and not form_data.get("full_description"):
+        form_data["full_description"] = form_data["description"]
     
     # Generate form ID
     form_id = str(uuid.uuid4())
@@ -495,3 +569,42 @@ async def get_grievance_status(form_id: str, user_id: str = Depends(get_current_
         "estimated_response_time": form.get("estimated_response_time"),
         "resolved_at": form.get("resolved_at")
     }
+
+@router.post("/forms/{form_id}/confirm-resolution")
+@router.post("/form/{form_id}/confirm-resolution")
+async def confirm_resolution(form_id: str, user_id: str = Depends(get_current_user)):
+    """Confirm resolution and close grievance."""
+    forms_collection = get_collection("grievance_forms")
+    form = await forms_collection.find_one({"form_id": form_id})
+    if not form:
+        raise HTTPException(status_code=404, detail="Grievance not found")
+    
+    if form.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    now = datetime.utcnow()
+    await forms_collection.update_one(
+        {"form_id": form_id},
+        {"$set": {
+            "status": "closed",
+            "verification_status": "verified",
+            "verification_comment": "Citizen confirmed resolution",
+            "closed_at": now,
+            "updated_at": now
+        }}
+    )
+
+    try:
+        from services.civic_operations import verify_resolution
+        await verify_resolution(form_id=form_id, citizen_confirmed=True, comment="Citizen confirmed resolution via portal")
+    except Exception as e:
+        logger.warning(f"Could not sync civic_operations verification: {e}")
+
+    return {
+        "success": True,
+        "message": "Resolution confirmed successfully. Grievance closed.",
+        "form_id": form_id,
+        "status": "closed",
+        "verification_status": "verified"
+    }
+

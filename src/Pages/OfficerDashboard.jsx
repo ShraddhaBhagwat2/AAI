@@ -17,7 +17,7 @@ import {
   RefreshCw,
   Image as ImageIcon,
 } from "lucide-react";
-import { officerAPI } from "../services/api";
+import { officerAPI, buildImageUrl, formatIST } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
@@ -696,7 +696,7 @@ export default function OfficerDashboard() {
                       </td>
                       <td className="p-4 text-sm text-slate-600">
                         {item.ticket.resolved_at
-                          ? new Date(item.ticket.resolved_at).toLocaleString()
+                          ? formatIST(item.ticket.resolved_at)
                           : "-"}
                       </td>
                       <td className="p-4 text-sm text-slate-600">
@@ -794,13 +794,13 @@ export default function OfficerDashboard() {
                         </span>
                       </td>
                       <td className="p-4 text-sm text-slate-600">
-                        {new Date(item.ticket.assigned_at).toLocaleString()}
+                        {formatIST(item.ticket.assigned_at)}
                       </td>
                       <td className="p-4">
-                        <div className="flex gap-2">
+                        <div className="flex items-center gap-2">
                           <button
                             onClick={() => viewTicketDetails(item)}
-                            className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
                             title="View Details"
                           >
                             <Eye size={18} />
@@ -814,15 +814,21 @@ export default function OfficerDashboard() {
                                 )
                               }
                               disabled={statusUpdateLoading}
-                              className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all shadow-sm"
                               title="Start Work"
                             >
-                              <PlayCircle size={18} />
+                              <PlayCircle size={14} /> Start Work
                             </button>
                           )}
                           {statusIs(item.ticket.status, "in_progress") && (
                             <>
-                              {/* Quick pause action */}
+                              <button
+                                onClick={() => openResolveModal(item)}
+                                className="flex items-center gap-1 px-3 py-1 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-all shadow-sm animate-pulse-subtle"
+                                title="Resolve Ticket"
+                              >
+                                <CheckCircle size={14} /> Resolve
+                              </button>
                               <button
                                 onClick={() =>
                                   handleStatusUpdate(
@@ -831,24 +837,17 @@ export default function OfficerDashboard() {
                                   )
                                 }
                                 disabled={statusUpdateLoading}
-                                className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors"
+                                className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors"
                                 title="Pause Work"
                               >
-                                <PauseCircle size={18} />
+                                <PauseCircle size={16} />
                               </button>
                               <button
                                 onClick={() => openClarificationModal(item)}
-                                className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg transition-colors"
+                                className="p-1.5 text-orange-600 hover:bg-orange-100 rounded-lg transition-colors"
                                 title="Request Clarification"
                               >
-                                <MessageSquare size={18} />
-                              </button>
-                              <button
-                                onClick={() => openResolveModal(item)}
-                                className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                                title="Resolve Ticket"
-                              >
-                                <CheckCircle size={18} />
+                                <MessageSquare size={16} />
                               </button>
                             </>
                           )}
@@ -861,10 +860,10 @@ export default function OfficerDashboard() {
                                 )
                               }
                               disabled={statusUpdateLoading}
-                              className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-all shadow-sm"
                               title="Resume Work"
                             >
-                              <PlayCircle size={18} />
+                              <PlayCircle size={14} /> Resume
                             </button>
                           )}
                         </div>
@@ -894,8 +893,32 @@ export default function OfficerDashboard() {
 
             {/* Status update form (small) */}
             <div className="mb-6 p-4 bg-slate-50 rounded-lg flex flex-col gap-3 border">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                Officer Actions
+              <div className="flex justify-between items-center">
+                <div className="text-xs font-bold text-slate-500 uppercase">
+                  Officer Actions
+                </div>
+                {statusIs(selectedTicket.ticket?.status, "in_progress") && (
+                  <button
+                    onClick={() => openResolveModal(selectedTicket)}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white rounded-lg font-bold text-xs shadow transition-all"
+                  >
+                    <CheckCircle size={15} /> Resolve Grievance Now
+                  </button>
+                )}
+                {statusIs(selectedTicket.ticket?.status, "assigned") && (
+                  <button
+                    onClick={() =>
+                      handleStatusUpdate(
+                        selectedTicket.ticket.grievance_id,
+                        "in_progress"
+                      )
+                    }
+                    disabled={statusUpdateLoading}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-bold text-xs shadow transition-all"
+                  >
+                    <PlayCircle size={15} /> Start Work Now
+                  </button>
+                )}
               </div>
               <div className="flex gap-2 items-start">
                 <select
@@ -996,9 +1019,7 @@ export default function OfficerDashboard() {
                     Assigned At
                   </div>
                   <div className="text-slate-800">
-                    {new Date(
-                      selectedTicket.ticket.assigned_at
-                    ).toLocaleString()}
+                    {formatIST(selectedTicket.ticket.assigned_at)}
                   </div>
                 </div>
               </div>
@@ -1038,12 +1059,16 @@ export default function OfficerDashboard() {
                     {selectedTicket.media_gallery.map((url, idx) => (
                       <div
                         key={idx}
-                        className="aspect-square bg-slate-100 rounded-lg overflow-hidden"
+                        className="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200 cursor-pointer shadow-sm hover:shadow"
+                        onClick={() => window.open(buildImageUrl(url), "_blank")}
                       >
                         <img
-                          src={url}
+                          src={buildImageUrl(url)}
                           alt={`Evidence ${idx + 1}`}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover hover:scale-105 transition-transform"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
                         />
                       </div>
                     ))}
@@ -1069,9 +1094,9 @@ export default function OfficerDashboard() {
 
       {/* RESOLVE TICKET MODAL */}
       {showResolveModal && selectedTicket && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-up">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
-            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6 flex justify-between items-center">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in-up">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden border border-slate-100">
+            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-5 flex justify-between items-center flex-shrink-0">
               <h3 className="font-bold text-xl flex items-center gap-3">
                 <CheckCircle size={24} /> Resolve Ticket
               </h3>
@@ -1083,16 +1108,16 @@ export default function OfficerDashboard() {
               </button>
             </div>
 
-            <form onSubmit={handleResolveTicket} className="p-6 space-y-6">
-              <div className="p-4 bg-slate-50 rounded-lg">
-                <div className="text-sm text-slate-500">Resolving ticket:</div>
-                <div className="font-mono font-bold text-slate-800">
+            <form onSubmit={handleResolveTicket} className="p-6 space-y-5 overflow-y-auto flex-1">
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="text-xs text-slate-500 uppercase font-semibold">Resolving Ticket:</div>
+                <div className="font-mono font-bold text-slate-800 text-sm">
                   {selectedTicket.ticket.grievance_id}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
                   Action Taken *
                 </label>
                 <textarea
@@ -1105,13 +1130,13 @@ export default function OfficerDashboard() {
                   }
                   placeholder="Describe the action taken to resolve this issue..."
                   required
-                  rows={4}
-                  className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50"
+                  rows={3}
+                  className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 text-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
                   Closing Remark *
                 </label>
                 <textarea
@@ -1124,41 +1149,41 @@ export default function OfficerDashboard() {
                   }
                   placeholder="Final remarks and resolution summary..."
                   required
-                  rows={3}
-                  className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50"
+                  rows={2}
+                  className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 text-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
                   Resolution Photos (Proof) *
                 </label>
-                <div className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center hover:border-green-500 transition-colors">
-                  <Upload className="mx-auto text-slate-400 mb-2" size={32} />
+                <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center hover:border-green-500 transition-colors bg-slate-50">
+                  <Upload className="mx-auto text-slate-400 mb-1.5" size={28} />
                   <input
                     type="file"
                     multiple
                     accept="image/*"
                     onChange={handleFileChange}
                     required
-                    className="w-full"
+                    className="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                   />
-                  <p className="text-sm text-slate-500 mt-2">
+                  <p className="text-xs text-slate-500 mt-1.5">
                     Upload photos showing the resolved issue
                   </p>
                   {resolveForm.resolution_photos.length > 0 && (
-                    <div className="mt-3 text-sm font-bold text-green-600">
-                      {resolveForm.resolution_photos.length} file(s) selected
+                    <div className="mt-2 text-xs font-bold text-green-600 flex items-center justify-center gap-1">
+                      <CheckCircle size={14} /> {resolveForm.resolution_photos.length} file(s) selected
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-3 border-t border-slate-200 bg-white sticky bottom-0 z-10">
                 <button
                   type="submit"
                   disabled={resolveLoading}
-                  className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                 >
                   {resolveLoading ? (
                     <>
@@ -1167,14 +1192,14 @@ export default function OfficerDashboard() {
                     </>
                   ) : (
                     <>
-                      <CheckCircle size={20} /> Resolve Ticket
+                      <CheckCircle size={18} /> Resolve Ticket
                     </>
                   )}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowResolveModal(false)}
-                  className="px-6 py-3 border-2 border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors"
+                  className="px-6 py-3 border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors text-sm"
                 >
                   Cancel
                 </button>
@@ -1287,18 +1312,14 @@ export default function OfficerDashboard() {
                     <div className="flex justify-between items-center p-2 bg-blue-50 rounded">
                       <span className="text-slate-600">Assigned:</span>
                       <span className="font-bold text-slate-800">
-                        {new Date(
-                          selectedTicket.ticket.assigned_at
-                        ).toLocaleString()}
+                        {formatIST(selectedTicket.ticket.assigned_at)}
                       </span>
                     </div>
                     {selectedTicket.ticket.started_at && (
                       <div className="flex justify-between items-center p-2 bg-yellow-50 rounded">
                         <span className="text-slate-600">Started:</span>
                         <span className="font-bold text-slate-800">
-                          {new Date(
-                            selectedTicket.ticket.started_at
-                          ).toLocaleString()}
+                          {formatIST(selectedTicket.ticket.started_at)}
                         </span>
                       </div>
                     )}
@@ -1306,9 +1327,7 @@ export default function OfficerDashboard() {
                       <div className="flex justify-between items-center p-2 bg-green-50 rounded">
                         <span className="text-slate-600">Resolved:</span>
                         <span className="font-bold text-slate-800">
-                          {new Date(
-                            selectedTicket.ticket.resolved_at
-                          ).toLocaleString()}
+                          {formatIST(selectedTicket.ticket.resolved_at)}
                         </span>
                       </div>
                     )}
@@ -1394,10 +1413,13 @@ export default function OfficerDashboard() {
                           className="group relative aspect-square bg-slate-100 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all cursor-pointer"
                         >
                           <img
-                            src={url}
+                            src={buildImageUrl(url)}
                             alt={`Evidence ${idx + 1}`}
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                            onClick={() => window.open(url, "_blank")}
+                            onClick={() => window.open(buildImageUrl(url), "_blank")}
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
                           />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
                             <Eye
@@ -1461,9 +1483,9 @@ export default function OfficerDashboard() {
 
       {/* REQUEST CLARIFICATION MODAL */}
       {showClarificationModal && selectedTicket && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-up">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="bg-gradient-to-r from-orange-600 to-orange-700 text-white p-6 flex justify-between items-center">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in-up">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-auto max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            <div className="bg-gradient-to-r from-orange-600 to-orange-700 text-white p-5 flex justify-between items-center flex-shrink-0">
               <h3 className="font-bold text-xl flex items-center gap-3">
                 <MessageSquare size={24} /> Request Clarification
               </h3>
@@ -1477,19 +1499,19 @@ export default function OfficerDashboard() {
 
             <form
               onSubmit={handleRequestClarification}
-              className="p-6 space-y-6"
+              className="p-6 space-y-5 overflow-y-auto flex-1"
             >
-              <div className="p-4 bg-slate-50 rounded-lg">
-                <div className="text-sm text-slate-500">
-                  Requesting clarification for:
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="text-xs text-slate-500 uppercase font-semibold">
+                  Requesting Clarification for:
                 </div>
-                <div className="font-mono font-bold text-slate-800">
+                <div className="font-mono font-bold text-slate-800 text-sm">
                   {selectedTicket.ticket.grievance_id}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
                   Message to Citizen *
                 </label>
                 <textarea
@@ -1502,16 +1524,16 @@ export default function OfficerDashboard() {
                   }
                   placeholder="What additional information do you need from the citizen?"
                   required
-                  rows={5}
-                  className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-slate-50"
+                  rows={4}
+                  className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-slate-50 text-sm"
                 />
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-3 border-t border-slate-200 bg-white sticky bottom-0 z-10">
                 <button
                   type="submit"
                   disabled={clarificationLoading}
-                  className="flex-1 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                 >
                   {clarificationLoading ? (
                     <>
@@ -1520,14 +1542,14 @@ export default function OfficerDashboard() {
                     </>
                   ) : (
                     <>
-                      <Send size={20} /> Send Request
+                      <Send size={18} /> Send Request
                     </>
                   )}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowClarificationModal(false)}
-                  className="px-6 py-3 border-2 border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors"
+                  className="px-6 py-3 border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors text-sm"
                 >
                   Cancel
                 </button>
@@ -1579,9 +1601,7 @@ export default function OfficerDashboard() {
                             Requested At
                           </div>
                           <div className="text-slate-800">
-                            {new Date(
-                              clarification.requested_at
-                            ).toLocaleString()}
+                            {formatIST(clarification.requested_at)}
                           </div>
                         </div>
                       </div>
@@ -1602,10 +1622,7 @@ export default function OfficerDashboard() {
                             {clarification.citizen_response}
                           </div>
                           <div className="text-xs text-slate-500 mt-1">
-                            Responded at:{" "}
-                            {new Date(
-                              clarification.responded_at
-                            ).toLocaleString()}
+                            Responded at: {formatIST(clarification.responded_at)}
                           </div>
                         </div>
                       ) : (

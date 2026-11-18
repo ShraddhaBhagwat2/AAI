@@ -10,8 +10,8 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   const handleLodgeClick = () => {
-    if (user) navigate("/citizen");
-    else navigate("/login", { state: { redirectTo: "/citizen" } });
+    if (user) navigate("/citizen?action=new", { state: { view: "new-complaint" } });
+    else navigate("/login", { state: { redirectTo: "/citizen?action=new" } });
   };
 
   const handleLogout = async () => {

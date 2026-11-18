@@ -51,6 +51,21 @@ class UserRepository:
         return str(result.inserted_id)
 
     async def get_user_by_mobile(self, mobile_number: str) -> Optional[dict]:
-        user = await user_collection.find_one({"mobile_number": mobile_number})
-        print(f"Fetched user by mobile: {user}")
-        return user
+        raw = str(mobile_number or "").strip()
+        cleaned = raw.replace(" ", "").replace("-", "")
+        queries = [
+            {"mobile_number": raw},
+            {"mobile_number": cleaned},
+            {"email": raw.lower()},
+            {"email": raw}
+        ]
+        if cleaned.startswith("+91"):
+            queries.append({"mobile_number": cleaned[3:]})
+        elif not cleaned.startswith("+"):
+            queries.append({"mobile_number": f"+91{cleaned}"})
+
+        for q in queries:
+            user = await user_collection.find_one(q)
+            if user:
+                return user
+        return None

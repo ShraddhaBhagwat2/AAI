@@ -211,9 +211,15 @@ async def get_ticket_details(
         ticket = next((t for t in tickets if t.ticket.grievance_id == grievance_id), None)
         
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            resolved = await officer_service.get_resolved_tickets(current_officer["sub"])
+            ticket = next((t for t in resolved if t.ticket.grievance_id == grievance_id), None)
+
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found in officer queue")
         
         return ticket
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

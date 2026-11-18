@@ -18,23 +18,74 @@ class OfficerService:
         self.analysis_collection = self.ai_db.analysis_records  # Analysis records
 
     async def get_officer_dashboard(self, officer_id: str) -> List[DashboardView]:
-        """Get all assigned tickets for an officer by querying AI Analysis DB, excluding 'completed' status"""
+        """Get all assigned tickets for an officer by querying AI Analysis DB, excluding completed/resolved tickets"""
         cursor = self.analysis_collection.find({
             "assigned_officer_id": officer_id,
-            "status": {"$ne": "completed"}  # Exclude completed tickets
+            "status": {"$nin": ["completed", "resolved"]}  # Exclude completed/resolved tickets
         })
         
         dashboard_items = []
         async for record in cursor:
+            # Query resolution record for current status & timeline
+            resolution = await self.resolutions_collection.find_one({
+                "grievance_id": record["form_id"],
+                "officer_id": officer_id
+            })
+
+            ticket_status = TicketStatus.ASSIGNED
+            started_at = None
+            resolved_at = None
+
+            if resolution:
+                raw_st = str(resolution.get("status", "")).lower()
+                if raw_st in ["resolved", "completed"]:
+                    continue  # Already resolved, belongs in resolved tickets
+                elif raw_st in ["in_progress", "inprogress"]:
+                    ticket_status = TicketStatus.IN_PROGRESS
+                elif raw_st in ["paused"]:
+                    ticket_status = TicketStatus.PAUSED
+                elif raw_st in ["seeking_info"]:
+                    ticket_status = TicketStatus.SEEKING_INFO
+                else:
+                    ticket_status = TicketStatus.ASSIGNED
+                started_at = resolution.get("started_at")
+                resolved_at = resolution.get("resolved_at")
+            else:
+                raw_st = str(record.get("status", "")).lower()
+                if raw_st in ["resolved", "completed"]:
+                    continue
+                elif raw_st in ["in_progress", "inprogress"]:
+                    ticket_status = TicketStatus.IN_PROGRESS
+                elif raw_st in ["paused"]:
+                    ticket_status = TicketStatus.PAUSED
+                elif raw_st in ["seeking_info"]:
+                    ticket_status = TicketStatus.SEEKING_INFO
+                else:
+                    ticket_status = TicketStatus.ASSIGNED
+
+            # Gather grievance evidence documents & resolution photos
+            evidence_files = []
+            try:
+                g_doc = await self.grievance_collection.find_one({"form_id": record["form_id"]})
+                if g_doc and g_doc.get("document_paths"):
+                    evidence_files.extend(g_doc.get("document_paths"))
+            except Exception:
+                pass
+            if resolution and resolution.get("resolution_photos"):
+                evidence_files.extend(resolution.get("resolution_photos"))
+            cleaned_docs = [str(p).replace("\\", "/").replace("./", "") for p in evidence_files if p]
+
             # Map analysis record to ticket overview
             ticket = TicketOverview(
                 grievance_id=record["form_id"],
-                status=TicketStatus.ASSIGNED,  # Default to assigned in resolution context
+                status=ticket_status,
                 priority_level=record["urgency_level"],
-                priority_reasoning=record["priority_reasoning"],
-                cluster_info=record.get("cluster_info", {}),  # Assuming cluster_info might be added later
-                assigned_at=record["analyzed_at"],
-                original_documents=record.get("document_insights", []) if record.get("document_insights") else []  # Placeholder for media
+                priority_reasoning=record.get("priority_reasoning", ""),
+                cluster_info=record.get("cluster_info", {}),
+                assigned_at=record.get("analyzed_at", datetime.utcnow()),
+                started_at=started_at,
+                resolved_at=resolved_at,
+                original_documents=cleaned_docs
             )
             
             # Format urgency banner
@@ -59,7 +110,7 @@ class OfficerService:
                 urgency_banner=urgency_banner,
                 context_panel=context_panel,
                 cluster_summary=cluster_summary,
-                media_gallery=ticket.original_documents
+                media_gallery=cleaned_docs
             )
             dashboard_items.append(dashboard_view)
         
@@ -81,51 +132,69 @@ class OfficerService:
             if not analysis_record:
                 raise ValueError("Ticket not found in analysis records")
             
-            resolution = ResolutionRecord(
+            resolution_rec = ResolutionRecord(
                 grievance_id=grievance_id,
                 officer_id=officer_id,
-                officer_name=analysis_record["assigned_officer_name"],
+                officer_name=analysis_record.get("assigned_officer_name", "Nodal Officer"),
                 status=TicketStatus.ASSIGNED,
-                priority_level=analysis_record["urgency_level"],
-                priority_reasoning=analysis_record["priority_reasoning"],
-                assigned_at=analysis_record["analyzed_at"]
+                priority_level=analysis_record.get("urgency_level", "medium"),
+                priority_reasoning=analysis_record.get("priority_reasoning", ""),
+                assigned_at=analysis_record.get("analyzed_at", datetime.utcnow())
             )
-            result = await self.resolutions_collection.insert_one(resolution.dict(exclude={"id"}))
-            resolution.id = str(result.inserted_id)  # Use field name for model
-            resolution_id = resolution.id
-            officer_name = resolution.officer_name
+            result = await self.resolutions_collection.insert_one(resolution_rec.dict(exclude={"id"}))
+            resolution_id = str(result.inserted_id)
+            officer_name = resolution_rec.officer_name
+            started_at_val = None
         else:
-            resolution_id = resolution["_id"]
-            officer_name = resolution["officer_name"]
+            resolution_id = str(resolution["_id"])
+            officer_name = resolution.get("officer_name", "Nodal Officer")
+            started_at_val = resolution.get("started_at")
         
-        # Proceed with update as before
-        update_data = {
+        # Proceed with update
+        now = datetime.utcnow()
+        set_fields = {
             "status": new_status,
-            "updated_at": datetime.utcnow()
+            "updated_at": now
         }
         
         # Set timestamps based on status
-        if new_status == TicketStatus.IN_PROGRESS and not resolution.get("started_at"):
-            update_data["started_at"] = datetime.utcnow()
+        if new_status == TicketStatus.IN_PROGRESS and not started_at_val:
+            set_fields["started_at"] = now
+        
+        update_query = {"$set": set_fields}
         
         # Add progress update
         if progress_note:
             progress_update = {
-                "timestamp": datetime.utcnow(),
+                "timestamp": now,
                 "status": new_status,
                 "note": progress_note,
                 "officer_id": officer_id
             }
-            update_data["$push"] = {"progress_updates": progress_update}
+            update_query["$push"] = {"progress_updates": progress_update}
         
         # Update the record
         await self.resolutions_collection.update_one(
             {"_id": ObjectId(resolution_id)},
-            {"$set": update_data} if not progress_note else {"$set": {k: v for k, v in update_data.items() if k != "$push"}, **update_data}
+            update_query
         )
+
+        status_str = str(new_status.value if hasattr(new_status, "value") else new_status)
+        try:
+            await self.analysis_collection.update_one(
+                {"form_id": grievance_id},
+                {"$set": {"status": status_str, "updated_at": now}}
+            )
+            await self.grievance_collection.update_one(
+                {"form_id": grievance_id},
+                {"$set": {"status": status_str, "updated_at": now}}
+            )
+        except Exception as sync_err:
+            print(f"Warning: could not sync status across collections: {sync_err}")
+
         await update_lifecycle(
             grievance_id,
-            str(new_status.value if hasattr(new_status, "value") else new_status),
+            status_str,
             progress_note or f"Officer updated status to {new_status}",
         )
         
@@ -136,7 +205,7 @@ class OfficerService:
             "success": True,
             "message": f"Status updated to {new_status}",
             "new_status": new_status,
-            "updated_at": update_data["updated_at"]
+            "updated_at": set_fields["updated_at"]
         }
 
     async def request_clarification(self, officer_id: str, grievance_id: str, message: str) -> Dict[str, Any]:
@@ -153,22 +222,21 @@ class OfficerService:
             if not analysis_record:
                 raise ValueError("Ticket not found in analysis records")
             
-            resolution = ResolutionRecord(
+            resolution_rec = ResolutionRecord(
                 grievance_id=grievance_id,
                 officer_id=officer_id,
-                officer_name=analysis_record["assigned_officer_name"],
+                officer_name=analysis_record.get("assigned_officer_name", "Nodal Officer"),
                 status=TicketStatus.ASSIGNED,
-                priority_level=analysis_record["urgency_level"],
-                priority_reasoning=analysis_record["priority_reasoning"],
-                assigned_at=analysis_record["analyzed_at"]
+                priority_level=analysis_record.get("urgency_level", "medium"),
+                priority_reasoning=analysis_record.get("priority_reasoning", ""),
+                assigned_at=analysis_record.get("analyzed_at", datetime.utcnow())
             )
-            result = await self.resolutions_collection.insert_one(resolution.dict(exclude={"id"}))
-            resolution.id = str(result.inserted_id)  # Use field name for model
-            resolution_id = resolution.id
-            officer_name = resolution.officer_name
+            result = await self.resolutions_collection.insert_one(resolution_rec.dict(exclude={"id"}))
+            resolution_id = str(result.inserted_id)
+            officer_name = resolution_rec.officer_name
         else:
             resolution_id = str(resolution["_id"])  # Convert ObjectId to string
-            officer_name = resolution["officer_name"]
+            officer_name = resolution.get("officer_name", "Nodal Officer")
         
         # Proceed as before
         clarification = ClarificationRequest(
@@ -228,24 +296,23 @@ class OfficerService:
             if not analysis_record:
                 raise ValueError("Ticket not found in analysis records")
             
-            resolution = ResolutionRecord(
+            resolution_rec = ResolutionRecord(
                 grievance_id=grievance_id,
                 officer_id=officer_id,
-                officer_name=analysis_record["assigned_officer_name"],
+                officer_name=analysis_record.get("assigned_officer_name", "Nodal Officer"),
                 status=TicketStatus.ASSIGNED,
-                priority_level=analysis_record["urgency_level"],
-                priority_reasoning=analysis_record["priority_reasoning"],
-                assigned_at=analysis_record["analyzed_at"]
+                priority_level=analysis_record.get("urgency_level", "medium"),
+                priority_reasoning=analysis_record.get("priority_reasoning", ""),
+                assigned_at=analysis_record.get("analyzed_at", datetime.utcnow())
             )
-            result = await self.resolutions_collection.insert_one(resolution.dict(exclude={"id"}))
-            resolution.id = str(result.inserted_id)  # Use field name for model
-            resolution_id = resolution.id
-            officer_name = resolution.officer_name
-            started_at = resolution.assigned_at  # Default for new
+            result = await self.resolutions_collection.insert_one(resolution_rec.dict(exclude={"id"}))
+            resolution_id = str(result.inserted_id)
+            officer_name = resolution_rec.officer_name
+            started_at = resolution_rec.assigned_at  # Default for new
         else:
             resolution_id = str(resolution["_id"])
-            officer_name = resolution["officer_name"]
-            started_at = resolution.get("started_at") or resolution["assigned_at"]  # Ensure not None
+            officer_name = resolution.get("officer_name", "Nodal Officer")
+            started_at = resolution.get("started_at") or resolution.get("assigned_at") or datetime.utcnow()
         
         # Proceed with resolution as before
         resolved_at = datetime.utcnow()
@@ -332,6 +399,17 @@ class OfficerService:
         resolved_items = []
         async for record in cursor:
             # Map resolution record to ticket overview
+            evidence_files = []
+            try:
+                g_doc = await self.grievance_collection.find_one({"form_id": record["grievance_id"]})
+                if g_doc and g_doc.get("document_paths"):
+                    evidence_files.extend(g_doc.get("document_paths"))
+            except Exception:
+                pass
+            if record.get("resolution_photos"):
+                evidence_files.extend(record.get("resolution_photos"))
+            cleaned_docs = [str(p).replace("\\", "/").replace("./", "") for p in evidence_files if p]
+
             ticket = TicketOverview(
                 grievance_id=record["grievance_id"],
                 status=TicketStatus.RESOLVED,
@@ -341,7 +419,7 @@ class OfficerService:
                 assigned_at=record["assigned_at"],
                 started_at=record.get("started_at"),
                 resolved_at=record.get("resolved_at"),
-                original_documents=record.get("original_documents", [])
+                original_documents=cleaned_docs
             )
             
             # Format urgency banner
@@ -362,7 +440,7 @@ class OfficerService:
                 urgency_banner=urgency_banner,
                 context_panel=context_panel,
                 cluster_summary=cluster_summary,
-                media_gallery=record.get("resolution_photos", [])
+                media_gallery=cleaned_docs
             )
             resolved_items.append(dashboard_view)
         

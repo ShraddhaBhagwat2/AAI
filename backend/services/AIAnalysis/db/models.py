@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 class AnalysisRecord(BaseModel):
@@ -18,6 +18,8 @@ class AnalysisRecord(BaseModel):
     status: str
     analyzed_at: datetime = Field(default_factory=datetime.utcnow)
     document_insights: Optional[str] = None  # Added for extracted document content
+    location_intelligence: Optional[Dict[str, Any]] = None
+    geo_coordinates: Optional[Dict[str, float]] = None
     
     class Config:
         json_schema_extra = {

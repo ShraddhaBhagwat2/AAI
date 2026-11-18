@@ -126,4 +126,17 @@ class FormExtractionAgent:
         content = re.sub(r',(\s*[}\]])', r'\1', content)
         
         # Attempt to parse JSON
-        return json.loads(content)
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            # Flatten any nested category blocks returned by the model
+            flattened = {}
+            for k, v in list(parsed.items()):
+                if isinstance(v, dict) and any(cat in k.upper() for cat in ["CATEGORY", "SPATIAL", "EVIDENCE", "METADATA"]):
+                    flattened.update(v)
+            for k, v in flattened.items():
+                if k not in parsed or not parsed[k]:
+                    parsed[k] = v
+            # Ensure full_description fallback from description
+            if not parsed.get("full_description") and parsed.get("description"):
+                parsed["full_description"] = parsed["description"]
+        return parsed

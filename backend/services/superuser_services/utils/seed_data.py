@@ -10,13 +10,11 @@ logger = logging.getLogger(__name__)
 async def create_initial_superadmin():
     """Create initial SuperAdmin user if not exists"""
     try:
-        # Check if SuperAdmin already exists
         existing_admin = await user_repository.get_user_by_email(settings.initial_admin_email)
         if existing_admin:
             logger.info("SuperAdmin already exists")
             return
         
-        # Create SuperAdmin
         staff_id = f"SUPER_{uuid.uuid4().hex[:6].upper()}"
         hashed_password = auth_utils.hash_password(settings.initial_admin_password)
         
@@ -29,13 +27,13 @@ async def create_initial_superadmin():
             password_hash=hashed_password,
             role=UserRole.SUPER_ADMIN,
             metadata=StaffMetadata(
-                dept=Department.ELECTRICITY,  # Default department
+                dept=Department.ELECTRICITY,
                 ward="System",
                 designation="System Administrator"
             ),
             account_status=AccountStatus(
                 is_active=True,
-                is_first_login=False,  # SuperAdmin doesn't need first login flow
+                is_first_login=False,
                 created_by="SYSTEM"
             )
         )
@@ -49,60 +47,105 @@ async def create_initial_superadmin():
         raise
 
 async def seed_sample_data():
-    """Create sample department admins and officers"""
+    """Create sample department admins and nodal officers for all key civic departments"""
     try:
-        # Sample Department Admin
-        dept_admin_id = f"DEPT_{uuid.uuid4().hex[:6].upper()}"
-        dept_admin = StaffUser(
-            staff_id=dept_admin_id,
-            full_name="Electricity Dept Admin",
-            employee_id="ELEC_ADMIN_001",
-            email="elec.admin@gov.in",
-            phone_number="+911234567891",
-            password_hash=auth_utils.hash_password("ElecAdmin@123"),
-            role=UserRole.DEPT_ADMIN,
-            metadata=StaffMetadata(
-                dept=Department.ELECTRICITY,
-                ward="Central Zone",
-                designation="Electrical Superintendent"
-            ),
-            account_status=AccountStatus(
-                is_active=True,
-                is_first_login=False,
-                created_by="SYSTEM"
-            )
-        )
-        
-        # Sample Nodal Officer
-        officer_id = f"STF_{uuid.uuid4().hex[:6].upper()}"
-        nodal_officer = StaffUser(
-            staff_id=officer_id,
-            full_name="Rahul Sharma",
-            employee_id="ELEC_OFF_001",
-            email="rahul.sharma@gov.in",
-            phone_number="+911234567892",
-            password_hash=auth_utils.hash_password("Officer@123"),
-            role=UserRole.NODAL_OFFICER,
-            metadata=StaffMetadata(
-                dept=Department.ELECTRICITY,
-                ward="Shanti Nagar",
-                designation="Junior Engineer"
-            ),
-            account_status=AccountStatus(
-                is_active=True,
-                is_first_login=True,
-                created_by=dept_admin_id
-            )
-        )
-        
-        # Check and create if not exists
-        if not await user_repository.get_user_by_email("elec.admin@gov.in"):
-            await user_repository.create_user(dept_admin)
-            logger.info("Sample Department Admin created")
-        
-        if not await user_repository.get_user_by_email("rahul.sharma@gov.in"):
-            await user_repository.create_user(nodal_officer)
-            logger.info("Sample Nodal Officer created")
-            
+        sample_officers = [
+            {
+                "full_name": "Ramesh Verma",
+                "employee_id": "SAN_OFF_001",
+                "email": "ramesh.sanitation@gov.in",
+                "phone_number": "+919876500001",
+                "role": UserRole.NODAL_OFFICER,
+                "dept": Department.SANITATION,
+                "ward": "Sector 14",
+                "designation": "Sanitation Inspector"
+            },
+            {
+                "full_name": "Pooja Iyer",
+                "employee_id": "WAT_OFF_001",
+                "email": "pooja.water@gov.in",
+                "phone_number": "+919876500002",
+                "role": UserRole.NODAL_OFFICER,
+                "dept": Department.WATER_SUPPLY,
+                "ward": "Sector 14",
+                "designation": "Water Works Engineer"
+            },
+            {
+                "full_name": "Vikram Singh",
+                "employee_id": "ROA_OFF_001",
+                "email": "vikram.roads@gov.in",
+                "phone_number": "+919876500003",
+                "role": UserRole.NODAL_OFFICER,
+                "dept": Department.ROADS,
+                "ward": "Ward 14",
+                "designation": "Assistant Engineer (PWD)"
+            },
+            {
+                "full_name": "Rahul Sharma",
+                "employee_id": "ELEC_OFF_001",
+                "email": "rahul.sharma@gov.in",
+                "phone_number": "+919876500004",
+                "role": UserRole.NODAL_OFFICER,
+                "dept": Department.ELECTRICITY,
+                "ward": "Shanti Nagar",
+                "designation": "Junior Engineer (Power)"
+            },
+            {
+                "full_name": "Amit Patel",
+                "employee_id": "SAF_OFF_001",
+                "email": "amit.safety@gov.in",
+                "phone_number": "+919876500005",
+                "role": UserRole.NODAL_OFFICER,
+                "dept": Department.PUBLIC_SAFETY,
+                "ward": "Central Zone",
+                "designation": "Public Safety Officer"
+            },
+            {
+                "full_name": "Sunil Rao",
+                "employee_id": "DRN_OFF_001",
+                "email": "sunil.drainage@gov.in",
+                "phone_number": "+919876500006",
+                "role": UserRole.NODAL_OFFICER,
+                "dept": Department.DRAINAGE,
+                "ward": "Central Zone",
+                "designation": "Drainage Supervisor"
+            },
+            {
+                "full_name": "Electricity Dept Admin",
+                "employee_id": "ELEC_ADMIN_001",
+                "email": "elec.admin@gov.in",
+                "phone_number": "+919876500099",
+                "role": UserRole.DEPT_ADMIN,
+                "dept": Department.ELECTRICITY,
+                "ward": "Central Zone",
+                "designation": "Electrical Superintendent"
+            }
+        ]
+
+        for off in sample_officers:
+            if not await user_repository.get_user_by_email(off["email"]):
+                staff_id = f"STF_{uuid.uuid4().hex[:6].upper()}"
+                user = StaffUser(
+                    staff_id=staff_id,
+                    full_name=off["full_name"],
+                    employee_id=off["employee_id"],
+                    email=off["email"],
+                    phone_number=off["phone_number"],
+                    password_hash=auth_utils.hash_password("Officer@123"),
+                    role=off["role"],
+                    metadata=StaffMetadata(
+                        dept=off["dept"],
+                        ward=off["ward"],
+                        designation=off["designation"]
+                    ),
+                    account_status=AccountStatus(
+                        is_active=True,
+                        is_first_login=False,
+                        created_by="SYSTEM"
+                    )
+                )
+                await user_repository.create_user(user)
+                logger.info("Seeded staff officer: %s (%s, %s)", off["full_name"], off["dept"], off["ward"])
+
     except Exception as e:
-        logger.error(f"Error creating sample data: {e}")
+        logger.error(f"Error seeding sample data: {e}")

@@ -11,10 +11,15 @@ class UserRole(str, Enum):
 class Department(str, Enum):
     ELECTRICITY = "Electricity"
     WATER = "Water"
+    WATER_SUPPLY = "Water Supply"
     SANITATION = "Sanitation"
     ROADS = "Roads"
     HEALTH = "Health"
     EDUCATION = "Education"
+    PUBLIC_SAFETY = "Public Safety"
+    DRAINAGE = "Drainage"
+    STREET_LIGHTS = "Street Lights"
+    GENERAL = "General Administration"
 
 class StaffMetadata(BaseModel):
     dept: Department

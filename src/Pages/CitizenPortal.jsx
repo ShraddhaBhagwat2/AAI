@@ -8,12 +8,62 @@ import {
   MessageCircle,
   Star,
   History,
+  Bot,
+  MapPin,
+  Search,
+  Compass,
 } from "lucide-react";
-import { grievanceAPI } from "../services/api";
+import { grievanceAPI, buildImageUrl, formatIST } from "../services/api";
 import Navbar from "../components/Navbar";
+import { useSearchParams, useLocation } from "react-router-dom";
+
+function resolveExtractedFields(extracted = {}, fallbackCategory = "", fallbackDesc = "", currentFields = {}) {
+  const locParts = [extracted.landmark, extracted.location_hint, extracted.area_ward_name]
+    .filter((p) => p && String(p).trim() && !["null", "none", "unknown", "n/a"].includes(String(p).toLowerCase()));
+
+  const resolvedLoc =
+    extracted.location ||
+    (locParts.length > 0
+      ? locParts.join(", ")
+      : extracted.area_ward_name ||
+        extracted.landmark ||
+        currentFields.location ||
+        "");
+
+  const resolvedDesc =
+    extracted.full_description ||
+    extracted.description ||
+    fallbackDesc ||
+    currentFields.description ||
+    "";
+
+  const resolvedCat =
+    extracted.category ||
+    fallbackCategory ||
+    currentFields.category ||
+    "Sanitation";
+
+  return {
+    category: resolvedCat,
+    location: resolvedLoc,
+    description: resolvedDesc,
+  };
+}
 
 export default function CitizenPortal() {
-  const [view, setView] = useState("dashboard"); // 'dashboard' or 'new-complaint'
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const [view, setView] = useState(() => {
+    return searchParams.get("action") === "new" || location.state?.view === "new-complaint"
+      ? "new-complaint"
+      : "dashboard";
+  });
+
+  React.useEffect(() => {
+    if (searchParams.get("action") === "new" || location.state?.view === "new-complaint") {
+      setView("new-complaint");
+    }
+  }, [searchParams, location.state]);
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef(null);
   const [step, setStep] = useState(1); // 1: Input, 2: AI Verify, 3: Success
@@ -93,11 +143,27 @@ export default function CitizenPortal() {
       setSessionId(data.session_id || data.sessionId || null);
       const extracted = data.extracted_data || {};
       setExtractedData(extracted);
-      setFormFields({
-        category: extracted.category || "",
-        location: extracted.location || "",
-        description: extracted.description || spoken || "",
-      });
+      const validCategories = ["Sanitation", "Water Supply", "Electricity", "Roads", "Drainage", "Public Safety", "Other"];
+      let resolvedCategory = extracted.category;
+      const combinedText = `${extracted.category || ""} ${spoken || ""}`.toLowerCase();
+      if (!validCategories.includes(resolvedCategory)) {
+        if (["garbage", "dump", "trash", "waste", "smell", "clean", "sweeper", "dustbin", "environment", "animal", "health", "foul"].some(w => combinedText.includes(w))) {
+          resolvedCategory = "Sanitation";
+        } else if (["water", "leak", "pipe", "tap", "supply"].some(w => combinedText.includes(w))) {
+          resolvedCategory = "Water Supply";
+        } else if (["drain", "sewer", "gutter", "overflow", "manhole"].some(w => combinedText.includes(w))) {
+          resolvedCategory = "Drainage";
+        } else if (["light", "power", "electric", "pole", "wire"].some(w => combinedText.includes(w))) {
+          resolvedCategory = "Electricity";
+        } else if (["road", "pothole", "tar", "footpath"].some(w => combinedText.includes(w))) {
+          resolvedCategory = "Roads";
+        } else if (["safety", "crime", "stray", "police", "danger"].some(w => combinedText.includes(w))) {
+          resolvedCategory = "Public Safety";
+        } else {
+          resolvedCategory = "Sanitation";
+        }
+      }
+      setFormFields(resolveExtractedFields(extracted, resolvedCategory, spoken, formFields));
       setMissingInfo(data.missing_info || []);
       setClarificationQuestions(data.clarification_questions || []);
       setIsComplete(Boolean(data.is_complete));
@@ -204,13 +270,6 @@ export default function CitizenPortal() {
       return String(v);
     }
   };
-  const buildImageUrl = (p) => {
-    if (!p) return null;
-    if (typeof p !== "string") return null;
-    if (p.startsWith("http")) return p;
-    const cleaned = p.replace(/^\.\/?/, "").replace(/\\/g, "/");
-    return `${grievanceAPI.getForms ? window.location.origin : ""}/${cleaned}`;
-  };
 
   const openDetailModal = async (id) => {
     if (!id) return;
@@ -233,23 +292,28 @@ export default function CitizenPortal() {
     try {
       setDetailLoading(true);
       await grievanceAPI.confirmResolution(id);
-      // try to refresh recent list and detail
-      const refreshed = await (await grievanceAPI.getForm(id)).data;
-      setDetailData(refreshed || {});
-      // refresh recent list
-      setRecent((r) =>
-        r.map((i) =>
-          i.id === id ? { ...i, status: refreshed.status || "Resolved" } : i
-        )
-      );
-      alert("Confirmed. Thank you.");
-      setDetailLoading(false);
+      try {
+        const res = await grievanceAPI.getForm(id);
+        const refreshed = res?.data || res;
+        setDetailData(refreshed || {});
+        setRecent((r) =>
+          r.map((i) =>
+            i.id === id ? { ...i, status: refreshed?.status || "closed" } : i
+          )
+        );
+      } catch {}
+      alert("Resolution confirmed successfully. Grievance closed.");
+      setDetailModalOpen(false);
     } catch (e) {
       console.error("Confirm error", e);
       alert(
         "Failed to confirm: " +
-          (e?.response?.data?.message || e.message || "Unknown")
+          (e?.response?.data?.detail ||
+            e?.response?.data?.message ||
+            e.message ||
+            "Unknown error")
       );
+    } finally {
       setDetailLoading(false);
     }
   };
@@ -278,11 +342,7 @@ export default function CitizenPortal() {
       setSessionId(data.session_id || null);
       const extracted = data.extracted_data || {};
       setExtractedData(extracted);
-      setFormFields({
-        category: extracted.category || formFields.category,
-        location: extracted.location || formFields.location,
-        description: extracted.description || formFields.description,
-      });
+      setFormFields(resolveExtractedFields(extracted, formFields.category, formFields.description, formFields));
       setMissingInfo(data.missing_info || []);
       setClarificationQuestions(data.clarification_questions || []);
       setIsComplete(Boolean(data.is_complete));
@@ -352,12 +412,23 @@ export default function CitizenPortal() {
           </div>
         </div>
         <div className="mt-4">
-          <div className="bg-white p-6 rounded-xl border border-slate-100">
-            <h2 className="text-lg font-bold mb-2">Welcome to your portal</h2>
-            <p className="text-sm text-slate-600">
-              Use the links below to view profile, current or previous
-              grievances, and track status.
-            </p>
+          <div className="bg-white p-6 rounded-xl border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold mb-1">Welcome to your portal</h2>
+              <p className="text-sm text-slate-600">
+                Lodge new civic grievances, track redressal progress, and view verified official redresses.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setView("new-complaint")}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white rounded-lg font-semibold shadow hover:shadow-md transition-all whitespace-nowrap self-start md:self-auto"
+            >
+              <Mic size={18} />
+              Lodge New Grievance
+            </button>
+          </div>
+          <div className="mt-3 bg-white p-4 rounded-xl border border-slate-100">
             <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
               <a
                 href="/citizen/profile"
@@ -440,7 +511,7 @@ export default function CitizenPortal() {
                   </div>
                   <div className="flex justify-between items-center text-xs text-slate-400">
                     <span>
-                      {item.date ? new Date(item.date).toLocaleString() : ""}
+                      {item.date ? formatIST(item.date) : ""}
                     </span>
                     <div className="flex gap-2">
                       <button
@@ -460,14 +531,12 @@ export default function CitizenPortal() {
                   {item.photo && (
                     <div className="mt-3 border-t pt-3 flex items-center gap-3">
                       <img
-                        src={
-                          item.photo &&
-                          (item.photo.startsWith("http")
-                            ? item.photo
-                            : buildImageUrl(item.photo))
-                        }
+                        src={buildImageUrl(item.photo)}
                         alt="thumb"
-                        className="w-20 h-14 object-cover rounded"
+                        className="w-20 h-14 object-cover rounded border border-slate-200 shadow-sm"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
                       />
                       <div className="flex-1 text-xs text-slate-600">
                         Click to view updates in Current / Previous sections.
@@ -775,9 +844,8 @@ export default function CitizenPortal() {
                     <label className="text-xs font-bold text-slate-400 uppercase">
                       CATEGORY
                     </label>
-                    <input
-                      type="text"
-                      value={formFields.category}
+                    <select
+                      value={formFields.category || "Sanitation"}
                       onChange={(e) =>
                         setFormFields({
                           ...formFields,
@@ -785,7 +853,15 @@ export default function CitizenPortal() {
                         })
                       }
                       className="w-full p-2 border rounded-lg font-bold text-slate-800 bg-white text-sm"
-                    />
+                    >
+                      <option value="Sanitation">Sanitation (Garbage / Waste)</option>
+                      <option value="Water Supply">Water Supply (Leakage / Quality)</option>
+                      <option value="Roads">Roads (Potholes / Damage)</option>
+                      <option value="Electricity">Electricity (Streetlights / Outage)</option>
+                      <option value="Drainage">Drainage (Sewage / Overflow)</option>
+                      <option value="Public Safety">Public Safety (Hazards / Stray Animals)</option>
+                      <option value="Other">Other</option>
+                    </select>
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-400 uppercase">
@@ -907,15 +983,14 @@ export default function CitizenPortal() {
                               const d = resp.data || {};
                               const extracted = d.extracted_data || {};
                               setExtractedData(extracted);
-                              setFormFields({
-                                category:
-                                  extracted.category || formFields.category,
-                                location:
-                                  extracted.location || formFields.location,
-                                description:
-                                  extracted.description ||
+                              setFormFields(
+                                resolveExtractedFields(
+                                  extracted,
+                                  formFields.category,
                                   formFields.description,
-                              });
+                                  formFields
+                                )
+                              );
                               setMissingInfo(d.missing_info || []);
                               setClarificationQuestions(
                                 d.clarification_questions || []
@@ -1108,11 +1183,56 @@ export default function CitizenPortal() {
                   )}
                 </div>
 
+                                {/* Autonomous Multi-Agent Processing Trace */}
+                <div className="w-full max-w-md mt-6 bg-slate-50 border border-slate-200 rounded-xl p-4 text-left shadow-sm">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center justify-between">
+                    <span>Autonomous Agent Operations Trace</span>
+                    <span className="text-green-700 font-semibold text-[11px] bg-green-100 px-2 py-0.5 rounded border border-green-300">Active</span>
+                  </div>
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <Bot size={16} className="text-blue-600 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-bold text-slate-800">Complaint Understanding:</span>
+                        <span className="text-slate-600 ml-1">Structured issue intent & safety signals.</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <MapPin size={16} className="text-red-500 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-bold text-slate-800">Location Intelligence:</span>
+                        <span className="text-slate-600 ml-1">Grounded landmarks to coordinates & municipal ward.</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <Search size={16} className="text-purple-500 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-bold text-slate-800">Duplicate Detection:</span>
+                        <span className="text-slate-600 ml-1">Vector check against ChromaDB civic incidents.</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <Compass size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-bold text-slate-800">Department Routing:</span>
+                        <span className="text-slate-600 ml-1">Assigned to competent department & nodal officer.</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <Clock size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-bold text-slate-800">SLA & Escalation:</span>
+                        <span className="text-slate-600 ml-1">SLA target armed with autonomous breach escalation.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   onClick={() => setView("dashboard")}
-                  className="mt-8 text-orange-600 font-bold"
+                  className="mt-6 px-6 py-2 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors shadow"
                 >
-                  Go to Dashboard
+                  Return to Dashboard
                 </button>
               </div>
             )}

@@ -7,8 +7,10 @@ from enum import Enum
 class TicketStatus(str, Enum):
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress" 
+    PAUSED = "paused"
     SEEKING_INFO = "seeking_info"
     RESOLVED = "resolved"
+    COMPLETED = "completed"
 
 class Priority(str, Enum):
     LOW = "low"

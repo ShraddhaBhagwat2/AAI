@@ -16,8 +16,8 @@ export default function Home() {
   const navigate = useNavigate();
   const { user } = useAuth() || {};
   const handleLodge = () => {
-    if (user) navigate("/citizen");
-    else navigate("/login", { state: { redirectTo: "/citizen" } });
+    if (user) navigate("/citizen?action=new", { state: { view: "new-complaint" } });
+    else navigate("/login", { state: { redirectTo: "/citizen?action=new" } });
   };
 
   return (

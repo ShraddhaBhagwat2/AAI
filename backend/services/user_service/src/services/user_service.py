@@ -34,5 +34,6 @@ class UserService:
         print(f"DB User: {db_user}")
         if not db_user or not verify_password(user.password, db_user["password"]):
             raise ValueError("Invalid credentials")
-        access_token = create_access_token(data={"sub": user.mobile_number})
+        canonical_mobile = db_user.get("mobile_number") or user.mobile_number
+        access_token = create_access_token(data={"sub": canonical_mobile})
         return Token(access_token=access_token)

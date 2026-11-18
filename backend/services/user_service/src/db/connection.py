@@ -9,5 +9,8 @@ client = AsyncIOMotorClient(MONGO_URL)
 database = client["user_db"]
 user_collection = database["users"]
 
+def get_database():
+    return database
+
 def get_users_collection():
     return user_collection

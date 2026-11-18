@@ -4,6 +4,7 @@ import ssl
 import asyncio
 from email.message import EmailMessage
 from typing import Dict, Optional
+from bson import ObjectId
 from services.AIAnalysis.shared.schemas import AnalysisResult
 from services.AIAnalysis.utils.config import settings
 
@@ -117,42 +118,74 @@ class NotificationDispatcherAgent:
         Returns email or None on failure.
         """
         try:
-            # Attempt to import known DB getters; adapt to available project modules.
             try:
                 from services.AIFormFilling.src.db.connection import get_database as get_grievance_db
+                gdb = get_grievance_db()
+                gcol = gdb.grievance_forms
             except Exception:
                 logger.debug("grievance DB getter import failed, cannot fetch grievance_forms.")
                 return None
             
             try:
-                from services.user_service.src.db.connection import get_database as get_user_db
+                from services.user_service.src.db.connection import get_users_collection
+                ucol = get_users_collection()
             except Exception:
-                logger.debug("user DB getter import failed, cannot fetch users collection.")
-                return None
+                try:
+                    from services.user_service.src.db.connection import get_database as get_user_db
+                    ucol = get_user_db().users
+                except Exception:
+                    logger.debug("user DB getter import failed, cannot fetch users collection.")
+                    return None
 
-            # Get grievance doc
-            gdb = get_grievance_db()
-            gcol = gdb.grievance_forms
-            grievance_doc = await gcol.find_one({"_id": grievance_id}) or await gcol.find_one({"form_id": grievance_id})
+            # Get grievance doc (try form_id, _id as string, and _id as ObjectId)
+            grievance_queries = [{"form_id": grievance_id}, {"_id": grievance_id}]
+            try:
+                grievance_queries.append({"_id": ObjectId(grievance_id)})
+            except Exception:
+                pass
+
+            grievance_doc = None
+            for gq in grievance_queries:
+                grievance_doc = await gcol.find_one(gq)
+                if grievance_doc:
+                    break
+
             if not grievance_doc:
                 logger.info("No grievance found for id %s", grievance_id)
                 return None
+
+            # Check if email is directly stored in the grievance document
+            for field in ("email", "user_email"):
+                if grievance_doc.get(field):
+                    return grievance_doc.get(field)
 
             user_id = grievance_doc.get("user_id")
             if not user_id:
                 logger.info("No user_id on grievance %s", grievance_id)
                 return None
 
-            # Get user email
-            udb = get_user_db()
-            ucol = udb.users
-            user_doc = await ucol.find_one({"_id": user_id}) or await ucol.find_one({"user_id": user_id})
-            if not user_doc:
-                logger.info("No user found for user_id %s", user_id)
-                return None
+            # Build query candidates for user lookup
+            user_queries = []
+            try:
+                user_queries.append({"_id": ObjectId(user_id)})
+            except Exception:
+                pass
+            user_queries.extend([
+                {"_id": str(user_id)},
+                {"user_id": str(user_id)},
+                {"id": str(user_id)},
+                {"mobile_number": str(user_id)}
+            ])
 
-            email = user_doc.get("email")
-            return email
+            for uq in user_queries:
+                user_doc = await ucol.find_one(uq)
+                if user_doc:
+                    for field in ("email", "user_email", "email_primary", "emailAddress"):
+                        if user_doc.get(field):
+                            return user_doc.get(field)
+
+            logger.info("No user found with email for user_id %s", user_id)
+            return None
         except Exception as e:
             logger.exception("Error resolving citizen email for grievance %s: %s", grievance_id, e)
             return None
@@ -236,11 +269,23 @@ class NotificationDispatcherAgent:
 
             db = get_superuser_db()
             col = db.staff_users
-            doc = await col.find_one({"_id": officer_id}) or await col.find_one({"officer_id": officer_id})
-            if not doc:
-                return None
-            # Try common fields for email
-            return doc.get("email") or doc.get("contact", {}).get("email")
+            
+            queries = []
+            try:
+                queries.append({"_id": ObjectId(officer_id)})
+            except Exception:
+                pass
+            queries.extend([
+                {"_id": str(officer_id)},
+                {"officer_id": str(officer_id)},
+                {"employee_id": str(officer_id)}
+            ])
+
+            for q in queries:
+                doc = await col.find_one(q)
+                if doc:
+                    return doc.get("email") or doc.get("contact", {}).get("email")
+            return None
         except Exception:
             logger.exception("Error fetching officer email for %s", officer_id)
             return None

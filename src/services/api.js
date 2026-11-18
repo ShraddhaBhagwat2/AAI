@@ -1,8 +1,40 @@
 import axios from "axios";
 
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   "http://localhost:8000";
+
+export const buildImageUrl = (path) => {
+  if (!path) return null;
+  if (typeof path !== "string") return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+
+  const cleaned = path.replace(/\\/g, "/").replace(/^\.?\//, "");
+  const base = (API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+  return `${base}/${cleaned}`;
+};
+
+export const formatIST = (dateVal) => {
+  if (!dateVal) return "-";
+  let d = dateVal;
+  if (typeof dateVal === "string") {
+    if (!dateVal.endsWith("Z") && !dateVal.includes("+") && (dateVal.includes("T") || dateVal.includes(" "))) {
+      d = dateVal.replace(" ", "T") + "Z";
+    }
+  }
+  const dateObj = new Date(d);
+  if (isNaN(dateObj.getTime())) return String(dateVal);
+  return dateObj.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+};
 
 // Create axios instance
 const api = axios.create({

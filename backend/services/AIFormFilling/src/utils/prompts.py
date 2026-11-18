@@ -4,7 +4,7 @@ Your task is to analyze the input text and extract the following fields:
 
 CATEGORY 1 - Core Identification:
 - title: A 5-10 word summary of the issue
-- category: One of [Sanitation, Water Supply, Electricity, Roads, Public Safety, Other]
+- category: MUST be exactly one of: ["Sanitation", "Water Supply", "Electricity", "Roads", "Drainage", "Public Safety"]. Never invent custom categories like "Environmental Concern" or "Health Concern". All garbage, waste, foul smell, trash, cleanliness, or animal issues MUST be categorized as "Sanitation".
 - priority: One of [Low, Medium, High] based on urgency
 - urgency_reason: Brief explanation for the priority level
 

@@ -1,20 +1,43 @@
-from pydantic import BaseModel, EmailStr, Field
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from services.superuser_services.models.staff_user import UserRole, Department, StaffMetadata, AccountStatus
 
 class CreateUserRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=100)
-    employee_id: str = Field(..., min_length=3, max_length=20)
+    employee_id: str = Field(..., min_length=2, max_length=50)
     email: EmailStr
-    phone_number: str = Field(..., pattern=r'^\+?1?\d{9,15}$')
-    role: UserRole
+    phone_number: str
+    role: UserRole = UserRole.NODAL_OFFICER
     dept: Department
-    ward: str = Field(..., min_length=2, max_length=50)
-    designation: str = Field(..., min_length=2, max_length=100)
+    ward: str = Field(default="General Ward")
+    designation: str = Field(default="Officer")
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        cleaned = re.sub(r'[\s\-\(\)]', '', str(v))
+        if not cleaned:
+            raise ValueError("Phone number cannot be empty")
+        if not re.match(r'^\+?\d{7,16}$', cleaned):
+            raise ValueError("Invalid phone number format. Must contain 7 to 16 digits.")
+        return cleaned
+
+    @field_validator("ward")
+    @classmethod
+    def validate_ward(cls, v: str) -> str:
+        v_str = str(v).strip()
+        return v_str if len(v_str) >= 2 else "General Ward"
+
+    @field_validator("designation")
+    @classmethod
+    def validate_designation(cls, v: str) -> str:
+        v_str = str(v).strip()
+        return v_str if len(v_str) >= 2 else "Nodal Officer"
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str  # Can be email, employee_id, or phone number
     password: str
 
 class ChangePasswordRequest(BaseModel):

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional, Any
 import asyncio
 
 from services.AIAnalysis.db import get_database as get_analysis_db, AnalysisRecord
@@ -11,7 +11,8 @@ from services.AIAnalysis.agents import (
     PriorityScorerAgent,
     SmartRoutingAgent,
     NotificationDispatcherAgent,
-    DocumentAnalysisAgent
+    DocumentAnalysisAgent,
+    LocationIntelligenceAgent
 )
 from services.civic_operations import register_complaint
 
@@ -23,6 +24,7 @@ priority_agent = PriorityScorerAgent()
 routing_agent = SmartRoutingAgent()
 notification_agent = NotificationDispatcherAgent()
 document_agent = DocumentAnalysisAgent()
+location_agent = LocationIntelligenceAgent()
 
 async def monitor_grievance_submissions():
     """
@@ -38,23 +40,65 @@ async def monitor_grievance_submissions():
             # Query for documents with status 'submitted'
             cursor = collection.find({"status": "submitted"})
             async for doc in cursor:
-                print(f"Processing new grievance: {doc.get('form_id')}")
+                form_id = doc.get("form_id") or str(doc.get("_id", "unknown"))
+                print(f"Processing new grievance: {form_id}")
                 
-                # Extract GrievanceData from document
-                grievance = GrievanceData(
-                    form_id=doc['form_id'],
-                    user_id=doc['user_id'],
-                    title=doc['title'],
-                    full_description=doc['full_description'],
-                    category=doc['category'],
-                    area_ward_name=doc['area_ward_name'],
-                    impacted_population=doc['impacted_population'],
-                    is_recurring=doc['is_recurring'],
-                    document_paths=doc.get('document_paths', [])
-                )
-                
-                # Run analysis pipeline
-                await run_analysis_pipeline(grievance)
+                try:
+                    cat1 = doc.get("CATEGORY_1") if isinstance(doc.get("CATEGORY_1"), dict) else {}
+                    cat2 = doc.get("CATEGORY_2") if isinstance(doc.get("CATEGORY_2"), dict) else {}
+                    cat3 = doc.get("CATEGORY_3") if isinstance(doc.get("CATEGORY_3"), dict) else {}
+                    cat4 = doc.get("CATEGORY_4") if isinstance(doc.get("CATEGORY_4"), dict) else {}
+
+                    full_desc = (
+                        doc.get("full_description")
+                        or cat3.get("full_description")
+                        or doc.get("description")
+                        or doc.get("original_text")
+                        or "No description provided."
+                    )
+                    title = doc.get("title") or cat1.get("title") or "Grievance Report"
+                    category = doc.get("category") or cat1.get("category") or "Other"
+                    area_ward_name = doc.get("area_ward_name") or cat2.get("area_ward_name")
+                    landmark = doc.get("landmark") or cat2.get("landmark")
+                    location_hint = doc.get("location_hint") or cat2.get("location_hint")
+                    geo_coordinates = doc.get("geo_coordinates") or cat2.get("geo_coordinates")
+                    impacted_population = (
+                        doc.get("impacted_population")
+                        or cat4.get("impacted_population")
+                        or "Street"
+                    )
+                    is_recurring = doc.get("is_recurring")
+                    if is_recurring is None:
+                        is_recurring = cat4.get("is_recurring", False)
+
+                    # Extract GrievanceData from document with fallbacks
+                    grievance = GrievanceData(
+                        form_id=form_id,
+                        user_id=str(doc.get("user_id") or ""),
+                        title=str(title),
+                        full_description=str(full_desc),
+                        category=str(category),
+                        area_ward_name=area_ward_name,
+                        impacted_population=str(impacted_population),
+                        is_recurring=bool(is_recurring),
+                        document_paths=doc.get("document_paths") or [],
+                        landmark=landmark,
+                        location_hint=location_hint,
+                        geo_coordinates=geo_coordinates,
+                    )
+                    
+                    # Run analysis pipeline
+                    await run_analysis_pipeline(grievance)
+                except Exception as doc_err:
+                    print(f"Error processing grievance {form_id}: {doc_err}")
+                    # Update status so one malformed document does not indefinitely poison the worker queue
+                    try:
+                        await collection.update_one(
+                            {"_id": doc["_id"]},
+                            {"$set": {"status": "error", "error_reason": str(doc_err)}}
+                        )
+                    except Exception as update_err:
+                        print(f"Failed to update error status for {form_id}: {update_err}")
             
             # Wait for 60 seconds before next poll
             await asyncio.sleep(60)
@@ -98,9 +142,21 @@ async def analyze_grievance(
 
 async def run_analysis_pipeline(grievance: GrievanceData):
     """
-    Execute the four-module analysis pipeline
+    Execute the multi-agent analysis pipeline
     """
     try:
+        # Module 0: Location Intelligence Agent (Ground vague location to coordinates & ward)
+        print(f"[LOC] Grounding location: {grievance.form_id}")
+        loc_intelligence = await location_agent.resolve_location(
+            area_ward_name=grievance.area_ward_name,
+            landmark=grievance.landmark,
+            location_hint=grievance.location_hint,
+            title=grievance.title,
+            description=grievance.full_description,
+        )
+        grievance.area_ward_name = loc_intelligence.get("area_ward_name") or grievance.area_ward_name
+        grievance.geo_coordinates = loc_intelligence.get("geo_coordinates")
+
         # Module A: Vector Embedding & Duplicate Check
         print(f"[A] Checking for duplicates: {grievance.form_id}")
         vector_check = await vector_agent.check_duplicate(grievance)
@@ -134,7 +190,8 @@ async def run_analysis_pipeline(grievance: GrievanceData):
             routing=routing,
             status=status,
             analyzed_at=datetime.utcnow(),
-            document_insights=document_insights
+            document_insights=document_insights,
+            location_intelligence=loc_intelligence,
         )
         
         # Module E: Notification Dispatch
@@ -158,7 +215,14 @@ async def run_analysis_pipeline(grievance: GrievanceData):
         await save_analysis_record(grievance, analysis_result)
         
         # Update grievance form status in AIFormFilling database
-        await update_grievance_status(grievance.form_id, status, analysis_result, citizen_message)
+        await update_grievance_status(
+            grievance.form_id,
+            status,
+            analysis_result,
+            citizen_message,
+            grievance.geo_coordinates,
+            grievance.area_ward_name
+        )
         await register_complaint(
             grievance.form_id,
             grievance.model_dump(),
@@ -196,7 +260,9 @@ async def save_analysis_record(grievance: GrievanceData, analysis: AnalysisResul
         assigned_officer_name=analysis.routing.officer_name,
         estimated_response_time=analysis.routing.estimated_response_time,
         status=analysis.status,
-        analyzed_at=analysis.analyzed_at
+        analyzed_at=analysis.analyzed_at,
+        location_intelligence=analysis.location_intelligence,
+        geo_coordinates=grievance.geo_coordinates
     )
     
     await db.analysis_records.insert_one(record.model_dump())
@@ -205,7 +271,9 @@ async def update_grievance_status(
     form_id: str, 
     status: str, 
     analysis: AnalysisResult,
-    citizen_message: str
+    citizen_message: str,
+    geo_coordinates: Optional[Dict[str, float]] = None,
+    area_ward_name: Optional[str] = None
 ):
     """Update grievance form in AIFormFilling database"""
     db = get_grievance_db()  # Synchronous call
@@ -221,8 +289,14 @@ async def update_grievance_status(
         "assigned_officer_name": analysis.routing.officer_name,
         "estimated_response_time": analysis.routing.estimated_response_time,
         "message": citizen_message,  # Added message field
-        "document_insights": analysis.document_insights  # Added for citizen info
+        "document_insights": analysis.document_insights,  # Added for citizen info
+        "location_intelligence": analysis.location_intelligence
     }
+    
+    if geo_coordinates:
+        update_data["geo_coordinates"] = geo_coordinates
+    if area_ward_name:
+        update_data["area_ward_name"] = area_ward_name
     
     if analysis.vector_check.is_duplicate:
         update_data["parent_form_id"] = analysis.vector_check.parent_form_id

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import CitizenNav from "../components/CitizenNav";
-import api, { grievanceAPI } from "../services/api";
+import api, { grievanceAPI, buildImageUrl, formatIST } from "../services/api";
 
 export default function CitizenCurrent() {
   // Helper to robustly resolve an identifier for a grievance item
@@ -20,22 +20,7 @@ export default function CitizenCurrent() {
   };
   const [expandedId, setExpandedId] = React.useState(null);
   const formatDate = (v) => {
-    if (!v) return "-";
-    try {
-      const raw = typeof v === "string" ? v : v?.$date || v;
-      const d = new Date(raw);
-      if (isNaN(d)) return String(v);
-      return d.toLocaleString();
-    } catch {
-      return String(v);
-    }
-  };
-  const buildImageUrl = (p) => {
-    if (!p) return null;
-    if (typeof p !== "string") return null;
-    if (p.startsWith("http")) return p;
-    const cleaned = p.replace(/^\.\/?/, "").replace(/\\/g, "/");
-    return `${api.defaults.baseURL.replace(/\/$/, "")}/${cleaned}`;
+    return formatIST(v);
   };
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -259,7 +244,7 @@ export default function CitizenCurrent() {
               You don't have any ongoing complaints at the moment
             </p>
             <a
-              href="/citizen"
+              href="/citizen?action=new"
               className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
             >
               Lodge New Complaint

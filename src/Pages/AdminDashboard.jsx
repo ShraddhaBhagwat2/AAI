@@ -23,17 +23,20 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import { adminAPI, feedbackAPI, civicAPI } from "../services/api";
-import api from "../services/api"; // add this import
+import { adminAPI, feedbackAPI, civicAPI, buildImageUrl, formatIST } from "../services/api";
+import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 // Constants
 const DEPARTMENTS = [
   "Electricity",
-  "Water",
+  "Water Supply",
   "Sanitation",
   "Roads",
+  "Public Safety",
+  "Drainage",
+  "Water",
   "Health",
   "Education",
 ];
@@ -195,7 +198,18 @@ export default function AdminDashboard() {
     setCreateSuccess("");
 
     try {
-      await adminAPI.createUser(createForm);
+      const cleanedPhone = (createForm.phone_number || "").replace(/[\s\-\(\)]/g, "");
+      const payload = {
+        ...createForm,
+        full_name: (createForm.full_name || "").trim(),
+        employee_id: (createForm.employee_id || "").trim(),
+        email: (createForm.email || "").trim(),
+        phone_number: cleanedPhone.startsWith("+") ? cleanedPhone : `+91${cleanedPhone}`,
+        ward: (createForm.ward || "").trim() || "General Ward",
+        designation: (createForm.designation || "").trim() || "Nodal Officer",
+      };
+
+      await adminAPI.createUser(payload);
       setCreateSuccess("User created successfully!");
       setCreateForm({
         full_name: "",
@@ -213,7 +227,14 @@ export default function AdminDashboard() {
         setCreateSuccess("");
       }, 2000);
     } catch (error) {
-      setCreateError(error.response?.data?.detail || "Failed to create user");
+      const errDetail = error.response?.data?.detail;
+      let msg = "Failed to create user";
+      if (typeof errDetail === "string") {
+        msg = errDetail;
+      } else if (Array.isArray(errDetail)) {
+        msg = errDetail.map(d => `${d.loc?.slice(-1)[0] || 'field'}: ${d.msg}`).join(", ");
+      }
+      setCreateError(msg);
     }
     setCreateLoading(false);
   };
@@ -254,14 +275,6 @@ export default function AdminDashboard() {
       );
     }
     setJurisdictionLoading(false);
-  };
-
-  const buildImageUrl = (p) => {
-    if (!p) return null;
-    if (typeof p !== "string") return null;
-    if (p.startsWith("http")) return p;
-    const cleaned = p.replace(/^\.\/?/, "").replace(/\\/g, "/");
-    return `${api.defaults.baseURL.replace(/\/$/, "")}/${cleaned}`;
   };
 
   const viewFeedbackDetail = async (feedbackId) => {
@@ -1183,7 +1196,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-2 text-sm">
                           {c.created_at
-                            ? new Date(c.created_at).toLocaleString()
+                            ? formatIST(c.created_at)
                             : "-"}
                         </td>
                       </tr>
@@ -1247,7 +1260,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-2 text-sm">
                           {f.created_at
-                            ? new Date(f.created_at).toLocaleString()
+                            ? formatIST(f.created_at)
                             : "-"}
                         </td>
                         <td className="p-2 text-sm">
@@ -1380,7 +1393,7 @@ export default function AdminDashboard() {
                       </div>
                       <div className="font-semibold">
                         {feedbackDetail.created_at
-                          ? new Date(feedbackDetail.created_at).toLocaleString()
+                          ? formatIST(feedbackDetail.created_at)
                           : "-"}
                       </div>
                     </div>

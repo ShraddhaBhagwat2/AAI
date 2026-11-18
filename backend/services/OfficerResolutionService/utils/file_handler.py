@@ -27,7 +27,7 @@ class FileHandler:
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             
-            saved_paths.append(file_path)
+            saved_paths.append(file_path.replace("\\", "/"))
         
         return saved_paths
 

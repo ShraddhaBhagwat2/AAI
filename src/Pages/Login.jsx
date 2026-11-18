@@ -82,7 +82,7 @@ export default function Login() {
           )}
 
           {/* Role Selector (For Hackathon Demo Speed) */}
-          <div className="flex bg-slate-100 p-1 rounded-lg mb-6">
+          <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
             {["citizen", "officer", "admin"].map((r) => (
               <button
                 key={r}
@@ -98,10 +98,48 @@ export default function Login() {
             ))}
           </div>
 
+          {/* Quick Demo Credentials for Fast Testing */}
+          {role === "officer" && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+              <div className="font-semibold mb-1 flex items-center justify-between">
+                <span>Demo Nodal Officers:</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ mobile_number: "rahul.sharma@gov.in", password: "Officer@123" })}
+                  className="px-2 py-1 bg-white hover:bg-blue-100 rounded border border-blue-300 font-medium text-[11px]"
+                >
+                  ⚡ Rahul Sharma (Electricity - Shanti Nagar)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ mobile_number: "SAN_OFF_001", password: "Officer@123" })}
+                  className="px-2 py-1 bg-white hover:bg-blue-100 rounded border border-blue-300 font-medium text-[11px]"
+                >
+                  🧹 Ramesh Verma (Sanitation - ID: SAN_OFF_001)
+                </button>
+              </div>
+            </div>
+          )}
+
+          {role === "admin" && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+              <div className="font-semibold mb-1">Demo Admin Account:</div>
+              <button
+                type="button"
+                onClick={() => setFormData({ mobile_number: "superadmin@gov.in", password: "TempAdmin@123" })}
+                className="px-2 py-1 bg-white hover:bg-amber-100 rounded border border-amber-300 font-medium text-[11px]"
+              >
+                👑 System SuperAdmin (superadmin@gov.in)
+              </button>
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                {role === "citizen" ? "Mobile Number / Email" : "Official ID"}
+                {role === "citizen" ? "Mobile Number / Email" : "Official ID or Email"}
               </label>
               <div className="relative">
                 <div className="absolute left-3 top-3 text-slate-400">
@@ -117,7 +155,7 @@ export default function Login() {
                   value={formData.mobile_number}
                   onChange={handleChange}
                   placeholder={
-                    role === "citizen" ? "+91 98765 43210" : "EMP-ID-2024"
+                    role === "citizen" ? "+91 98765 43210" : "Official ID (e.g. ELEC_OFF_001) or Email"
                   }
                   required
                   className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-lg font-medium focus:outline-blue-500"

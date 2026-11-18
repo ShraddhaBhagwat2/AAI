@@ -1,12 +1,13 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
-import os
 key = os.getenv("MISTRAL_API_KEY")
 print(f"DEBUG: Python sees the key as: {key}")
 from services.user_service.src.api.user_routes import router as user_router
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI):
     await connect_superuser_mongo()  # For SuperUser service
     await init_officer_resolution_service()  # For OfficerResolutionService
     await create_initial_superadmin()
+    await seed_sample_data()
 
     # Start background worker to monitor grievance submissions
     asyncio.create_task(monitor_grievance_submissions())
@@ -85,6 +87,24 @@ app.include_router(clarification_router, prefix="/clarifications", tags=["clarif
 # Include FeedbackService router
 app.include_router(feedback_router)
 app.include_router(civic_router)
+
+# Ensure upload directories exist
+for folder in ["resolution_uploads", "grievance_uploads", "uploads"]:
+    os.makedirs(folder, exist_ok=True)
+
+# Mount static file directories for photos and evidence
+app.mount("/resolution_uploads", StaticFiles(directory="resolution_uploads"), name="resolution_uploads")
+app.mount("/grievance_uploads", StaticFiles(directory="grievance_uploads"), name="grievance_uploads")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+@app.get("/files/{file_path:path}")
+async def serve_uploaded_file(file_path: str):
+    clean_path = file_path.replace("\\", "/").lstrip("/")
+    for base in ["resolution_uploads", "grievance_uploads", "uploads", "."]:
+        full_path = os.path.join(base, clean_path) if base != "." else clean_path
+        if os.path.isfile(full_path):
+            return FileResponse(full_path)
+    raise HTTPException(status_code=404, detail="File not found")
 
 if __name__ == "__main__":
     import uvicorn
